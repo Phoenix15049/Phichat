@@ -22,7 +22,7 @@ namespace Phichat.Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("Phichat.Domain.Entities.Message", b =>
+            modelBuilder.Entity("Message", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -30,6 +30,9 @@ namespace Phichat.Infrastructure.Migrations
 
                     b.Property<string>("EncryptedContent")
                         .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FileUrl")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("ReceiverId")
@@ -80,7 +83,7 @@ namespace Phichat.Infrastructure.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("Phichat.Domain.Entities.Message", b =>
+            modelBuilder.Entity("Message", b =>
                 {
                     b.HasOne("Phichat.Domain.Entities.User", "Receiver")
                         .WithMany()
