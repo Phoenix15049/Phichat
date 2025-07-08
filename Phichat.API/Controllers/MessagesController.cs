@@ -24,6 +24,20 @@ public class MessagesController : ControllerBase
         return Ok();
     }
 
+    [HttpPost("with-file")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<IActionResult> SendMessageWithFile([FromForm] SendMessageWithFileRequest request)
+    {
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var uploadPath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
+
+        await _messageService.SendMessageWithFileAsync(userId, request, uploadPath);
+
+        return Ok();
+    }
+
+
+
     [HttpGet]
     public async Task<IActionResult> GetMyMessages()
     {

@@ -10,4 +10,6 @@ public class Message
 
     public User Sender { get; set; } = default!;
     public User Receiver { get; set; } = default!;
+
+    public string? FileUrl { get; set; }
 }

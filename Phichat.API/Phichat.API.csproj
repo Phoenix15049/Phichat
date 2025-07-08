@@ -33,4 +33,8 @@
     <ProjectReference Include="..\Phichat.Domain\Phichat.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Uploads\" />
+  </ItemGroup>
+
 </Project>

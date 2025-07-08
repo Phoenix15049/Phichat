@@ -49,4 +49,43 @@ public class MessageService : IMessageService
                 SentAt = m.SentAt
             }).ToListAsync();
     }
+
+    public async Task SendMessageWithFileAsync(Guid senderId, SendMessageWithFileRequest request, string uploadRootPath)
+    {
+        var receiver = await _context.Users.FirstOrDefaultAsync(x => x.Id == request.ReceiverId);
+        if (receiver == null)
+            throw new Exception("Receiver not found.");
+
+        string? encryptedText = null;
+        if (!string.IsNullOrWhiteSpace(request.PlainText))
+            encryptedText = _encryption.EncryptWithPublicKey(receiver.PublicKey, request.PlainText);
+
+        string savedPath = string.Empty;
+        if (request.File != null && request.File.Length > 0)
+        {
+            var fileName = $"{Guid.NewGuid()}_{request.File.FileName}";
+            var fullPath = Path.Combine(uploadRootPath, fileName);
+
+            using (var stream = new FileStream(fullPath, FileMode.Create))
+            {
+                await request.File.CopyToAsync(stream);
+            }
+
+            savedPath = $"/uploads/{fileName}";
+        }
+
+        var message = new Message
+        {
+            Id = Guid.NewGuid(),
+            SenderId = senderId,
+            ReceiverId = request.ReceiverId,
+            EncryptedContent = encryptedText ?? "",
+            FileUrl = savedPath,
+            SentAt = DateTime.UtcNow
+        };
+
+        _context.Messages.Add(message);
+        await _context.SaveChangesAsync();
+    }
+
 }
