@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36203.30 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Phichat.Domain", "Phichat.Domain\Phichat.Domain.csproj", "{149E0A25-51FD-42EA-89B3-526FC0CC4BAF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Phichat.Application", "Phichat.Application\Phichat.Application.csproj", "{C25EE27C-9D82-4128-A605-02E239D78D95}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Phichat.Infrastructure", "Phichat.Infrastructure\Phichat.Infrastructure.csproj", "{E75D3AE5-129C-4E29-A74C-9576DC09545C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Phichat.API", "Phichat.API\Phichat.API.csproj", "{7AEB14F0-2931-47CF-9942-FD063E38DFED}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{149E0A25-51FD-42EA-89B3-526FC0CC4BAF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{149E0A25-51FD-42EA-89B3-526FC0CC4BAF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{149E0A25-51FD-42EA-89B3-526FC0CC4BAF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{149E0A25-51FD-42EA-89B3-526FC0CC4BAF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C25EE27C-9D82-4128-A605-02E239D78D95}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C25EE27C-9D82-4128-A605-02E239D78D95}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C25EE27C-9D82-4128-A605-02E239D78D95}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C25EE27C-9D82-4128-A605-02E239D78D95}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E75D3AE5-129C-4E29-A74C-9576DC09545C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E75D3AE5-129C-4E29-A74C-9576DC09545C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E75D3AE5-129C-4E29-A74C-9576DC09545C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E75D3AE5-129C-4E29-A74C-9576DC09545C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7AEB14F0-2931-47CF-9942-FD063E38DFED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7AEB14F0-2931-47CF-9942-FD063E38DFED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7AEB14F0-2931-47CF-9942-FD063E38DFED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7AEB14F0-2931-47CF-9942-FD063E38DFED}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {330B531D-C061-459A-9E7C-0D6A9BA6BDD1}
+	EndGlobalSection
+EndGlobal

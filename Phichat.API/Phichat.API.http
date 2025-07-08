@@ -1,0 +1,6 @@
+@Phichat.API_HostAddress = http://localhost:5228
+
+GET {{Phichat.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
