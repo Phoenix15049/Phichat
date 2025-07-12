@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Phichat.Application.DTOs.Message;
 using Phichat.Application.Interfaces;
+using Phichat.Infrastructure.Data;
 using System.Security.Claims;
 
 [ApiController]
@@ -9,10 +11,12 @@ using System.Security.Claims;
 [Authorize]
 public class MessagesController : ControllerBase
 {
+    private readonly AppDbContext _context;
     private readonly IMessageService _messageService;
-
-    public MessagesController(IMessageService messageService)
+    
+    public MessagesController(AppDbContext context, IMessageService messageService)
     {
+        _context = context;
         _messageService = messageService;
     }
 
@@ -36,6 +40,30 @@ public class MessagesController : ControllerBase
         return Ok();
     }
 
+
+    [Authorize]
+    [HttpGet("with/{userId:guid}")]
+    public async Task<IActionResult> GetConversationWith(Guid userId)
+    {
+        var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var messages = await _context.Messages
+            .Where(m =>
+                (m.SenderId == currentUserId && m.ReceiverId == userId) ||
+                (m.SenderId == userId && m.ReceiverId == currentUserId))
+            .OrderBy(m => m.SentAt)
+            .Select(m => new
+            {
+                m.Id,
+                m.SenderId,
+                m.EncryptedContent,
+                m.FileUrl,
+                m.SentAt
+            })
+            .ToListAsync();
+
+        return Ok(messages);
+    }
 
 
     [HttpGet]
