@@ -88,4 +88,56 @@ public class MessageService : IMessageService
         await _context.SaveChangesAsync();
     }
 
+    public async Task SendMessageFromHubAsync(Guid senderId, SendMessageViaHubRequest request, string uploadRootPath)
+    {
+        var receiver = await _context.Users.FirstOrDefaultAsync(x => x.Id == request.ReceiverId);
+        if (receiver == null)
+            throw new Exception("Receiver not found");
+
+        string encryptedContent = _encryption.EncryptWithPublicKey(receiver.PublicKey, request.PlainText);
+        string? fileUrl = null;
+
+        if (!string.IsNullOrEmpty(request.FileBase64) && !string.IsNullOrEmpty(request.FileName))
+        {
+            var bytes = Convert.FromBase64String(request.FileBase64);
+            var uniqueFileName = $"{Guid.NewGuid()}_{request.FileName}";
+            var fullPath = Path.Combine(uploadRootPath, uniqueFileName);
+            await File.WriteAllBytesAsync(fullPath, bytes);
+            fileUrl = $"/uploads/{uniqueFileName}";
+        }
+
+        var message = new Message
+        {
+            Id = Guid.NewGuid(),
+            SenderId = senderId,
+            ReceiverId = request.ReceiverId,
+            EncryptedContent = encryptedContent,
+            FileUrl = fileUrl,
+            SentAt = DateTime.UtcNow
+        };
+
+        _context.Messages.Add(message);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task<MessageReadResult> MarkAsReadAsync(Guid messageId, Guid readerId)
+    {
+        var message = await _context.Messages
+            .FirstOrDefaultAsync(m => m.Id == messageId && m.ReceiverId == readerId);
+
+        if (message == null || message.IsRead)
+            return new MessageReadResult { Success = false };
+
+        message.IsRead = true;
+        await _context.SaveChangesAsync();
+
+        return new MessageReadResult
+        {
+            Success = true,
+            SenderId = message.SenderId
+        };
+    }
+
+
+
 }

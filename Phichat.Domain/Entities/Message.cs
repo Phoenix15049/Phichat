@@ -12,4 +12,7 @@ public class Message
     public User Receiver { get; set; } = default!;
 
     public string? FileUrl { get; set; }
+
+    public bool IsRead { get; set; } = false;
+
 }

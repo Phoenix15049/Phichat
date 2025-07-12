@@ -17,6 +17,10 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Phichat.API.Hubs;
+
+
+
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -32,6 +36,10 @@ builder.Host.UseSerilog();
 
 
 builder.Services.AddControllers();
+
+
+builder.Services.AddSignalR();
+
 
 
 builder.Services.AddFluentValidationAutoValidation();
@@ -105,6 +113,23 @@ builder.Services.AddAuthentication(options =>
         }
     };
 
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+
+            // فقط برای مسیر SignalR (مثلاً /chat)
+            var path = context.HttpContext.Request.Path;
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/chat"))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        }
+    };
+
 
 
     options.TokenValidationParameters = new TokenValidationParameters
@@ -118,6 +143,19 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
     };
 });
+
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
 
 
 var app = builder.Build();
@@ -135,6 +173,7 @@ app.UseHttpsRedirection();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
+app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -151,5 +190,6 @@ app.UseStaticFiles(new StaticFileOptions
 
 app.MapControllers();
 
+app.MapHub<ChatHub>("/chat");
 
 app.Run();

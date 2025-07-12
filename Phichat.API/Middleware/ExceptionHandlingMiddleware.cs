@@ -28,7 +28,7 @@ public class ExceptionHandlingMiddleware
             context.Response.ContentType = "application/json";
             context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 
-            var response = new ErrorResponse
+            var response = new ChatHub
             {
                 Message = "خطای غیرمنتظره‌ای رخ داده است.",
                 #if DEBUG
