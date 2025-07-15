@@ -42,7 +42,7 @@ public class ChatHub : Hub
         return base.OnDisconnectedAsync(exception);
     }
 
-    public async Task SendMessage(Guid receiverId, string plainText)
+    public async Task SendMessage(Guid receiverId, string encryptedText)
     {
         var senderIdStr = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
 
@@ -52,7 +52,7 @@ public class ChatHub : Hub
         var request = new SendMessageRequest
         {
             ReceiverId = receiverId,
-            PlainText = plainText
+            EncryptedText = encryptedText
         };
 
         await _messageService.SendMessageAsync(senderId, request);
@@ -62,11 +62,12 @@ public class ChatHub : Hub
             await Clients.Client(receiverConnectionId).SendAsync("ReceiveMessage", new
             {
                 SenderId = senderId,
-                PlainText = plainText,
+                EncryptedText = encryptedText,
                 SentAt = DateTime.UtcNow
             });
         }
     }
+
 
 
     public async Task SendMessageWithFile(SendMessageViaHubRequest request)
@@ -84,12 +85,13 @@ public class ChatHub : Hub
             await Clients.Client(connId).SendAsync("ReceiveMessage", new
             {
                 SenderId = senderId,
-                PlainText = request.PlainText,
+                EncryptedText = request.EncryptedText,
                 FileUrl = "[دریافت فایل]",
                 SentAt = DateTime.UtcNow
             });
         }
     }
+
 
 
 

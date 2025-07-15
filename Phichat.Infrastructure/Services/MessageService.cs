@@ -7,12 +7,11 @@ using Phichat.Infrastructure.Data;
 public class MessageService : IMessageService
 {
     private readonly AppDbContext _context;
-    private readonly IEncryptionService _encryption;
 
-    public MessageService(AppDbContext context, IEncryptionService encryption)
+    public MessageService(AppDbContext context)
     {
         _context = context;
-        _encryption = encryption;
+
     }
 
     public async Task SendMessageAsync(Guid senderId, SendMessageRequest request)
@@ -21,16 +20,16 @@ public class MessageService : IMessageService
         if (receiver == null)
             throw new Exception("Receiver not found.");
 
-        var encrypted = _encryption.EncryptWithPublicKey(receiver.PublicKey, request.PlainText);
 
         var message = new Message
         {
             Id = Guid.NewGuid(),
             SenderId = senderId,
             ReceiverId = request.ReceiverId,
-            EncryptedContent = encrypted,
+            EncryptedContent = request.EncryptedText, 
             SentAt = DateTime.UtcNow
         };
+
 
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
@@ -57,9 +56,7 @@ public class MessageService : IMessageService
             throw new Exception("Receiver not found.");
 
         string? encryptedText = null;
-        if (!string.IsNullOrWhiteSpace(request.PlainText))
-            encryptedText = _encryption.EncryptWithPublicKey(receiver.PublicKey, request.PlainText);
-
+        encryptedText = request.EncryptedText;
         string savedPath = string.Empty;
         if (request.File != null && request.File.Length > 0)
         {
@@ -94,8 +91,10 @@ public class MessageService : IMessageService
         if (receiver == null)
             throw new Exception("Receiver not found");
 
-        string encryptedContent = _encryption.EncryptWithPublicKey(receiver.PublicKey, request.PlainText);
+        
         string? fileUrl = null;
+
+        string encryptedContent = request.EncryptedText;
 
         if (!string.IsNullOrEmpty(request.FileBase64) && !string.IsNullOrEmpty(request.FileName))
         {

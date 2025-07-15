@@ -1,0 +1,31 @@
+Build started at 2:54 AM...
+1>------ Build started: Project: Phichat.Domain, Configuration: Debug Any CPU ------
+1>Phichat.Domain -> D:\Phichat\Phichat.Domain\bin\Debug\net8.0\Phichat.Domain.dll
+2>------ Build started: Project: Phichat.Application, Configuration: Debug Any CPU ------
+2>Phichat.Application -> D:\Phichat\Phichat.Application\bin\Debug\net8.0\Phichat.Application.dll
+3>------ Build started: Project: Phichat.Infrastructure, Configuration: Debug Any CPU ------
+3>D:\Phichat\Phichat.Infrastructure\Services\MessageService.cs(7,31,7,46): error CS0738: 'MessageService' does not implement interface member 'IMessageService.SendMessageWithFileAsync(Guid, SendMessageWithFileRequest, string)'. 'MessageService.SendMessageWithFileAsync(Guid, SendMessageWithFileRequest, string)' cannot implement 'IMessageService.SendMessageWithFileAsync(Guid, SendMessageWithFileRequest, string)' because it does not have the matching return type of 'Task'.
+3>Done building project "Phichat.Infrastructure.csproj" -- FAILED.
+4>------ Build started: Project: Phichat.API, Configuration: Debug Any CPU ------
+4>D:\Phichat\Phichat.API\Phichat.API.csproj : warning NU1603: Phichat.API depends on Microsoft.IdentityModel.JsonWebTokens (>= 8.0.5) but Microsoft.IdentityModel.JsonWebTokens 8.0.5 was not found. Microsoft.IdentityModel.JsonWebTokens 8.1.0 was resolved instead.
+4>D:\Phichat\Phichat.API\Phichat.API.csproj : warning NU1603: Phichat.API depends on Microsoft.IdentityModel.Tokens (>= 8.0.5) but Microsoft.IdentityModel.Tokens 8.0.5 was not found. Microsoft.IdentityModel.Tokens 8.1.0 was resolved instead.
+4>C:\Program Files\dotnet\sdk\9.0.302\Sdks\Microsoft.NET.Sdk.Razor\targets\Microsoft.NET.Sdk.Razor.MvcApplicationPartsDiscovery.targets(54,5): warning RAZORSDK1007: Reference assembly D:\Phichat\Phichat.Infrastructure\bin\Debug\net8.0\Phichat.Infrastructure.dll could not be found. This is typically caused by build errors in referenced projects.
+4>CSC : error CS0006: Metadata file 'D:\Phichat\Phichat.Infrastructure\obj\Debug\net8.0\ref\Phichat.Infrastructure.dll' could not be found
+4>Done building project "Phichat.API.csproj" -- FAILED.
+========== Build: 2 succeeded, 2 failed, 0 up-to-date, 0 skipped ==========
+========== Build completed at 2:54 AM and took 06.994 seconds ==========
+
+Errors:
+'Message' does not contain a definition for 'IsRead' and no accessible extension method 'IsRead' accepting a first argument of type 'Message' could be found (are you missing a using directive or an assembly reference?)
+The name 'fileUrl' does not exist in the current context
+The name 'ChatManager' does not exist in the current context
+Metadata file 'D:\Phichat\Phichat.Infrastructure\obj\Debug\net8.0\ref\Phichat.Infrastructure.dll' could not be found
+Cannot assign void to an implicitly-typed variable
+'SendMessageWithFileRequest' does not contain a definition for 'FileName' and no accessible extension method 'FileName' accepting a first argument of type 'SendMessageWithFileRequest' could be found (are you missing a using directive or an assembly reference?)
+'SendMessageWithFileRequest' does not contain a definition for 'FileName' and no accessible extension method 'FileName' accepting a first argument of type 'SendMessageWithFileRequest' could be found (are you missing a using directive or an assembly reference?)
+'SendMessageWithFileRequest' does not contain a definition for 'FileBase64' and no accessible extension method 'FileBase64' accepting a first argument of type 'SendMessageWithFileRequest' could be found (are you missing a using directive or an assembly reference?)
+'SendMessageWithFileRequest' does not contain a definition for 'FileBase64' and no accessible extension method 'FileBase64' accepting a first argument of type 'SendMessageWithFileRequest' could be found (are you missing a using directive or an assembly reference?)
+'MessageService' does not implement interface member 'IMessageService.SendMessageWithFileAsync(Guid, SendMessageWithFileRequest, string)'. 'MessageService.SendMessageWithFileAsync(Guid, SendMessageWithFileRequest, string)' cannot implement 'IMessageService.SendMessageWithFileAsync(Guid, SendMessageWithFileRequest, string)' because it does not have the matching return type of 'Task'.
+'Message' does not contain a definition for 'IsRead' and no accessible extension method 'IsRead' accepting a first argument of type 'Message' could be found (are you missing a using directive or an assembly reference?)
+'Message' does not contain a definition for 'EncryptedContent' and no accessible extension method 'EncryptedContent' accepting a first argument of type 'Message' could be found (are you missing a using directive or an assembly reference?)
+'Message' does not contain a definition for 'EncryptedContent'

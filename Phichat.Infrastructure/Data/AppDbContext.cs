@@ -13,6 +13,9 @@ public class AppDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<Message> Messages => Set<Message>();
+    public DbSet<ChatKey> ChatKeys { get; set; }
+
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -44,5 +47,15 @@ public class AppDbContext : DbContext
                   .HasForeignKey(x => x.ReceiverId)
                   .OnDelete(DeleteBehavior.Restrict);
         });
+
+        //ChatKey config
+        modelBuilder.Entity<ChatKey>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.EncryptedSymmetricKey).IsRequired();
+        });
+
+
+
     }
 }

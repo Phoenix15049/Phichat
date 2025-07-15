@@ -6,6 +6,6 @@ public class SendMessageRequestValidator : AbstractValidator<SendMessageRequest>
     public SendMessageRequestValidator()
     {
         RuleFor(x => x.ReceiverId).NotEmpty();
-        RuleFor(x => x.PlainText).NotEmpty();
+        RuleFor(x => x.EncryptedText).NotEmpty();
     }
 }

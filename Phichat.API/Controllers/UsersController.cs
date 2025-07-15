@@ -1,20 +1,24 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Phichat.Application.DTOs.User;
 using Phichat.Application.Interfaces;
 using Phichat.Infrastructure.Data;
+using Phichat.Infrastructure.Services;
 using System.Security.Claims;
 
 [ApiController]
 [Route("api/[controller]")]
 public class UsersController : ControllerBase
 {
+    private readonly IUserService _userService;
     private readonly IUserQueryService _userQueryService;
     private readonly AppDbContext _context;
-    public UsersController(AppDbContext context, IUserQueryService userQueryService)
+    public UsersController(AppDbContext context, IUserQueryService userQueryService, IUserService userService)
     {
         _context = context;
         _userQueryService = userQueryService;
+        _userService = userService;
     }
 
     [HttpGet("{username}/public-key")]
@@ -49,11 +53,27 @@ public class UsersController : ControllerBase
             .Select(u => new
             {
                 u.Id,
-                u.Username
+                u.Username,
+                u.PublicKey
             })
             .ToListAsync();
 
         return Ok(users);
     }
+
+
+    
+
+
+    [HttpGet("{id}")]
+    public async Task<ActionResult<UserDto>> Get(Guid id)
+    {
+        var user = await _userService.GetUserByIdAsync(id);
+        if (user == null) return NotFound();
+
+        return Ok(user);
+    }
+
+
 
 }
