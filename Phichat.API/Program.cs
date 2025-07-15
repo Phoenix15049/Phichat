@@ -57,6 +57,7 @@ builder.Services.AddScoped<IUserQueryService, UserQueryService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
+builder.Services.AddScoped<IChatKeyService, ChatKeyService>();
 
 
 builder.Services.AddDbContext<AppDbContext>(options =>

@@ -3,5 +3,5 @@
 public class SendMessageRequest
 {
     public Guid ReceiverId { get; set; }
-    public string PlainText { get; set; } = string.Empty;
+    public string EncryptedText { get; set; } // متن رمز‌شده AES در Base64
 }

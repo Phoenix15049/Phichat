@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using Phichat.Application.DTOs.Auth;
+using Phichat.Application.DTOs.User;
 using Phichat.Application.Interfaces;
 using Phichat.Domain.Entities;
 using Phichat.Infrastructure.Data;
@@ -83,4 +84,20 @@ public class UserService : IUserService
             Token = new JwtSecurityTokenHandler().WriteToken(token)
         };
     }
+
+    public async Task<UserDto?> GetUserByIdAsync(Guid userId)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null) return null;
+
+        return new UserDto
+        {
+            Id = user.Id,
+            Username = user.Username,
+            PublicKey = user.PublicKey
+        };
+    }
+
+
+
 }
