@@ -35,19 +35,25 @@ public class MessageService : IMessageService
         await _context.SaveChangesAsync();
     }
 
-    public async Task<List<ReceivedMessageResponse>> GetReceivedMessagesAsync(Guid receiverId)
+    public async Task<List<ReceivedMessageResponse>> GetConversationAsync(Guid currentUserId, Guid otherUserId)
     {
         return await _context.Messages
-            .Where(m => m.ReceiverId == receiverId)
-            .OrderByDescending(m => m.SentAt)
+            .Where(m =>
+                (m.SenderId == currentUserId && m.ReceiverId == otherUserId) ||
+                (m.SenderId == otherUserId && m.ReceiverId == currentUserId)
+            )
+            .OrderBy(m => m.SentAt)
             .Select(m => new ReceivedMessageResponse
             {
                 MessageId = m.Id,
                 SenderId = m.SenderId,
                 EncryptedContent = m.EncryptedContent,
-                SentAt = m.SentAt
-            }).ToListAsync();
+                SentAt = m.SentAt,
+                FileUrl = m.FileUrl // اگه لازم باشه
+            })
+            .ToListAsync();
     }
+
 
     public async Task SendMessageWithFileAsync(Guid senderId, SendMessageWithFileRequest request, string uploadRootPath)
     {
@@ -91,10 +97,8 @@ public class MessageService : IMessageService
         if (receiver == null)
             throw new Exception("Receiver not found");
 
-        
-        string? fileUrl = null;
-
         string encryptedContent = request.EncryptedText;
+        string? fileUrl = null;
 
         if (!string.IsNullOrEmpty(request.FileBase64) && !string.IsNullOrEmpty(request.FileName))
         {
@@ -119,6 +123,7 @@ public class MessageService : IMessageService
         await _context.SaveChangesAsync();
     }
 
+
     public async Task<MessageReadResult> MarkAsReadAsync(Guid messageId, Guid readerId)
     {
         var message = await _context.Messages
@@ -136,6 +141,32 @@ public class MessageService : IMessageService
             SenderId = message.SenderId
         };
     }
+
+
+    public async Task<Message?> GetLastMessageBetweenAsync(Guid senderId, Guid receiverId)
+    {
+        return await _context.Messages
+            .Where(m => m.SenderId == senderId && m.ReceiverId == receiverId)
+            .OrderByDescending(m => m.SentAt)
+            .FirstOrDefaultAsync();
+    }
+
+
+    public async Task<List<ReceivedMessageResponse>> GetReceivedMessagesAsync(Guid receiverId)
+    {
+        return await _context.Messages
+            .Where(m => m.ReceiverId == receiverId)
+            .OrderByDescending(m => m.SentAt)
+            .Select(m => new ReceivedMessageResponse
+            {
+                MessageId = m.Id,
+                SenderId = m.SenderId,
+                EncryptedContent = m.EncryptedContent,
+                SentAt = m.SentAt,
+                FileUrl = m.FileUrl
+            }).ToListAsync();
+    }
+
 
 
 

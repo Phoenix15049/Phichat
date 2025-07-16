@@ -18,7 +18,11 @@ public class ChatHub : Hub
         _messageService = messageService;
     }
 
-
+    public class SimpleMessageDto
+    {
+        public Guid ReceiverId { get; set; }
+        public string EncryptedText { get; set; } = string.Empty;
+    }
 
     public override Task OnConnectedAsync()
     {
@@ -42,7 +46,7 @@ public class ChatHub : Hub
         return base.OnDisconnectedAsync(exception);
     }
 
-    public async Task SendMessage(Guid receiverId, string encryptedText)
+    public async Task SendMessage(SimpleMessageDto dto)
     {
         var senderIdStr = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
 
@@ -51,22 +55,23 @@ public class ChatHub : Hub
 
         var request = new SendMessageRequest
         {
-            ReceiverId = receiverId,
-            EncryptedText = encryptedText
+            ReceiverId = dto.ReceiverId,
+            EncryptedText = dto.EncryptedText
         };
 
         await _messageService.SendMessageAsync(senderId, request);
 
-        if (OnlineUsers.TryGetValue(receiverId, out var receiverConnectionId))
+        if (OnlineUsers.TryGetValue(dto.ReceiverId, out var receiverConnectionId))
         {
             await Clients.Client(receiverConnectionId).SendAsync("ReceiveMessage", new
             {
                 SenderId = senderId,
-                EncryptedText = encryptedText,
+                EncryptedText = dto.EncryptedText,
                 SentAt = DateTime.UtcNow
             });
         }
     }
+
 
 
 
@@ -80,17 +85,21 @@ public class ChatHub : Hub
 
         await _messageService.SendMessageFromHubAsync(senderId, request, uploadPath);
 
+        // فایل در MessageService ذخیره شده، باید url رو از دیتابیس بگیریم
+        var latest = await _messageService.GetLastMessageBetweenAsync(senderId, request.ReceiverId);
+
         if (OnlineUsers.TryGetValue(request.ReceiverId, out var connId))
         {
             await Clients.Client(connId).SendAsync("ReceiveMessage", new
             {
                 SenderId = senderId,
                 EncryptedText = request.EncryptedText,
-                FileUrl = "[دریافت فایل]",
-                SentAt = DateTime.UtcNow
+                FileUrl = latest?.FileUrl, // 👈 لینک واقعی فایل
+                SentAt = latest?.SentAt ?? DateTime.UtcNow
             });
         }
     }
+
 
 
 

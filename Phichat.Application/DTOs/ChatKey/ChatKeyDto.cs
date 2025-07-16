@@ -3,5 +3,6 @@
 public class ChatKeyDto
 {
     public Guid ReceiverId { get; set; }
-    public string EncryptedKeyBase64 { get; set; }
+    public string EncryptedKey { get; set; } = string.Empty;
 }
+
