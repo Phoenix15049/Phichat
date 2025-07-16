@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Phichat.Application.DTOs.Message;
@@ -23,8 +23,12 @@ public class MessagesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> SendMessage(SendMessageRequest request)
     {
+        Console.WriteLine($"SendMessage invoked: to {request.ReceiverId}, text len {request.EncryptedText.Length}");
+        
+        
         var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         await _messageService.SendMessageAsync(userId, request);
+
         return Ok();
     }
 
@@ -41,29 +45,14 @@ public class MessagesController : ControllerBase
     }
 
 
-    [Authorize]
     [HttpGet("with/{userId:guid}")]
     public async Task<IActionResult> GetConversationWith(Guid userId)
     {
         var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-
-        var messages = await _context.Messages
-            .Where(m =>
-                (m.SenderId == currentUserId && m.ReceiverId == userId) ||
-                (m.SenderId == userId && m.ReceiverId == currentUserId))
-            .OrderBy(m => m.SentAt)
-            .Select(m => new
-            {
-                m.Id,
-                m.SenderId,
-                m.EncryptedContent,
-                m.FileUrl,
-                m.SentAt
-            })
-            .ToListAsync();
-
+        var messages = await _messageService.GetConversationAsync(currentUserId, userId);
         return Ok(messages);
     }
+
 
 
     [HttpGet]

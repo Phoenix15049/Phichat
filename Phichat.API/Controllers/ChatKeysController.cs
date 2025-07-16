@@ -18,14 +18,14 @@ public class KeysController : ControllerBase
         _chatKeyService = chatKeyService;
     }
 
-    [HttpPost]
-    public async Task<IActionResult> PostKey(ChatKeyDto dto)
-    {
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var keyBytes = Convert.FromBase64String(dto.EncryptedKeyBase64);
-        await _chatKeyService.StoreChatKeyAsync(userId, dto.ReceiverId, keyBytes);
-        return Ok();
-    }
+    //[HttpPost]
+    //public async Task<IActionResult> PostKey(ChatKeyDto dto)
+    //{
+    //    var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    //    var keyBytes = Convert.FromBase64String(dto.EncryptedKey);
+    //    await _chatKeyService.StoreChatKeyAsync(userId, dto.ReceiverId, keyBytes);
+    //    return Ok();
+    //}
 
     [HttpGet("{otherUserId}")]
     public async Task<IActionResult> GetKey(Guid otherUserId)
@@ -35,5 +35,24 @@ public class KeysController : ControllerBase
         if (key == null) return NotFound();
         return Ok(Convert.ToBase64String(key));
     }
+
+    [HttpPost]
+    public async Task<IActionResult> StoreKey([FromBody] ChatKeyDto dto)
+    {
+        Console.WriteLine("StoreKey Called");
+        Console.WriteLine("ReceiverId: " + dto.ReceiverId);
+        Console.WriteLine("EncryptedKey: " + dto.EncryptedKey);
+
+        if (dto.ReceiverId == Guid.Empty || string.IsNullOrWhiteSpace(dto.EncryptedKey))
+            return BadRequest("Invalid payload");
+
+        var senderId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var keyBytes = Convert.FromBase64String(dto.EncryptedKey);
+        await _chatKeyService.StoreChatKeyAsync(senderId, dto.ReceiverId, keyBytes);
+
+        return Ok();
+    }
+
+
 }
 
