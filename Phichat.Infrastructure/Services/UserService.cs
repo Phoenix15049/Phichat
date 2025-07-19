@@ -35,8 +35,10 @@ public class UserService : IUserService
             Id = Guid.NewGuid(),
             Username = request.Username,
             PasswordHash = HashPassword(request.Password),
-            PublicKey = request.PublicKey
+            PublicKey = request.PublicKey,
+            EncryptedPrivateKey = request.EncryptedPrivateKey 
         };
+
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
@@ -94,8 +96,10 @@ public class UserService : IUserService
         {
             Id = user.Id,
             Username = user.Username,
-            PublicKey = user.PublicKey
+            PublicKey = user.PublicKey,
+            EncryptedPrivateKey = user.EncryptedPrivateKey ?? string.Empty
         };
+
     }
 
 
