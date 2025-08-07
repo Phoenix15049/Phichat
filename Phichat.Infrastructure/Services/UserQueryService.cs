@@ -19,8 +19,7 @@ public class UserQueryService : IUserQueryService
             .Select(u => new UserPublicKeyResponse
             {
                 UserId = u.Id,
-                Username = u.Username,
-                PublicKey = u.PublicKey
+                Username = u.Username
             }).FirstOrDefaultAsync();
 
         return user;
@@ -33,8 +32,7 @@ public class UserQueryService : IUserQueryService
             .Select(u => new UserPublicKeyResponse
             {
                 UserId = u.Id,
-                Username = u.Username,
-                PublicKey = u.PublicKey
+                Username = u.Username
             }).FirstOrDefaultAsync();
 
         return user;

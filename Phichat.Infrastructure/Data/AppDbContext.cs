@@ -28,7 +28,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(x => x.Username).IsUnique();
             entity.Property(x => x.Username).IsRequired().HasMaxLength(50);
             entity.Property(x => x.PasswordHash).IsRequired();
-            entity.Property(x => x.PublicKey).IsRequired();
+      
         });
 
         // Message config
@@ -52,10 +52,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ChatKey>(b =>
         {
             b.HasKey(x => x.Id);
-            b.Property(x => x.EncryptedSymmetricKey).IsRequired();
         });
-
-
 
     }
 }

@@ -14,29 +14,46 @@ public class ChatKeyService : IChatKeyService
         _db = db;
     }
 
-    public async Task StoreChatKeyAsync(Guid senderId, Guid receiverId, byte[] encryptedKey)
+    public async Task StoreChatKeyAsync(Guid senderId, Guid receiverId, byte[] key)
     {
-        var exists = await _db.ChatKeys
+        var existsForward = await _db.ChatKeys
             .AnyAsync(x => x.SenderId == senderId && x.ReceiverId == receiverId);
 
-        if (!exists)
+        var existsBackward = await _db.ChatKeys
+            .AnyAsync(x => x.SenderId == receiverId && x.ReceiverId == senderId);
+
+        if (!existsForward)
         {
             var chatKey = new ChatKey
             {
                 SenderId = senderId,
                 ReceiverId = receiverId,
-                EncryptedSymmetricKey = encryptedKey
+                SymmetricKey = key,
+                CreatedAt = DateTime.UtcNow
             };
             _db.ChatKeys.Add(chatKey);
-            await _db.SaveChangesAsync();
         }
+
+        if (!existsBackward)
+        {
+            var reverseChatKey = new ChatKey
+            {
+                SenderId = receiverId,
+                ReceiverId = senderId,
+                SymmetricKey = key,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.ChatKeys.Add(reverseChatKey);
+        }
+
+        await _db.SaveChangesAsync();
     }
 
     public async Task<byte[]?> GetEncryptedChatKeyAsync(Guid requestorId, Guid otherUserId)
     {
         return await _db.ChatKeys
             .Where(x => x.SenderId == otherUserId && x.ReceiverId == requestorId)
-            .Select(x => x.EncryptedSymmetricKey)
+            .Select(x => x.SymmetricKey)
             .FirstOrDefaultAsync();
     }
 }

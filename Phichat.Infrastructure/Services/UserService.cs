@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.IdentityModel.Tokens;
 using Phichat.Application.DTOs.Auth;
 using Phichat.Application.DTOs.User;
@@ -34,9 +35,7 @@ public class UserService : IUserService
         {
             Id = Guid.NewGuid(),
             Username = request.Username,
-            PasswordHash = HashPassword(request.Password),
-            PublicKey = request.PublicKey,
-            EncryptedPrivateKey = request.EncryptedPrivateKey 
+            PasswordHash = HashPassword(request.Password)
         };
 
 
@@ -49,6 +48,9 @@ public class UserService : IUserService
     public async Task<SendMessageRequest> LoginAsync(LoginRequest request)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == request.Username);
+        Console.WriteLine("Expected: " + user.PasswordHash);
+        Console.WriteLine("Actual: " + HashPassword(request.Password));
+
         if (user == null || user.PasswordHash != HashPassword(request.Password))
             throw new Exception("Invalid credentials.");
 
@@ -95,11 +97,20 @@ public class UserService : IUserService
         return new UserDto
         {
             Id = user.Id,
-            Username = user.Username,
-            PublicKey = user.PublicKey,
-            EncryptedPrivateKey = user.EncryptedPrivateKey ?? string.Empty
+            Username = user.Username
         };
 
+    }
+
+    public async Task UpdateEncryptedPrivateKeyAsync(Guid userId, string encryptedPrivateKey, string newPassword)
+    {
+        var user = await _context.Users.FindAsync(userId);
+        if (user is null)
+            throw new Exception("User not found");
+
+        user.PasswordHash = HashPassword(newPassword); // ← اضافه شده
+
+        await _context.SaveChangesAsync();
     }
 
 
