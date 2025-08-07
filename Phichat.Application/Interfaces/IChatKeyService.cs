@@ -1,7 +1,8 @@
-﻿namespace Phichat.Application.Interfaces;
-
-public interface IChatKeyService
+﻿namespace Phichat.Application.Interfaces
 {
-    Task StoreChatKeyAsync(Guid senderId, Guid receiverId, byte[] encryptedKey);
-    Task<byte[]?> GetEncryptedChatKeyAsync(Guid requestorId, Guid otherUserId);
+    public interface IChatKeyService
+    {
+        Task StoreChatKeyAsync(Guid senderId, Guid receiverId, byte[] key);
+        Task<byte[]?> GetEncryptedChatKeyAsync(Guid requestorId, Guid otherUserId);
+    }
 }

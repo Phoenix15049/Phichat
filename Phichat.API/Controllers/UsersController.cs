@@ -21,25 +21,6 @@ public class UsersController : ControllerBase
         _userService = userService;
     }
 
-    [HttpGet("{username}/public-key")]
-    public async Task<IActionResult> GetPublicKey(string username)
-    {
-        var result = await _userQueryService.GetByUsernameAsync(username);
-        if (result == null)
-            return NotFound();
-
-        return Ok(result);
-    }
-
-    [HttpGet("id/{id:guid}/public-key")]
-    public async Task<IActionResult> GetPublicKeyById(Guid id)
-    {
-        var result = await _userQueryService.GetByIdAsync(id);
-        if (result == null)
-            return NotFound();
-
-        return Ok(result);
-    }
 
 
     [Authorize]
@@ -53,16 +34,12 @@ public class UsersController : ControllerBase
             .Select(u => new
             {
                 u.Id,
-                u.Username,
-                u.PublicKey
+                u.Username
             })
             .ToListAsync();
 
         return Ok(users);
     }
-
-
-    
 
 
     [HttpGet("{id}")]
@@ -73,7 +50,5 @@ public class UsersController : ControllerBase
 
         return Ok(user);
     }
-
-
 
 }

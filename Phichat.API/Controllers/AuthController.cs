@@ -31,17 +31,6 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize]
-    [HttpGet("private-key")]
-    public async Task<IActionResult> GetEncryptedPrivateKey()
-    {
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var user = await _userService.GetUserByIdAsync(userId);
 
-        if (user == null)
-            return NotFound("User not found.");
-
-        return Ok(user.EncryptedPrivateKey);
-    }
 
 }

@@ -18,15 +18,6 @@ public class KeysController : ControllerBase
         _chatKeyService = chatKeyService;
     }
 
-    //[HttpPost]
-    //public async Task<IActionResult> PostKey(ChatKeyDto dto)
-    //{
-    //    var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-    //    var keyBytes = Convert.FromBase64String(dto.EncryptedKey);
-    //    await _chatKeyService.StoreChatKeyAsync(userId, dto.ReceiverId, keyBytes);
-    //    return Ok();
-    //}
-
     [HttpGet("{otherUserId}")]
     public async Task<IActionResult> GetKey(Guid otherUserId)
     {
@@ -39,10 +30,6 @@ public class KeysController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> StoreKey([FromBody] ChatKeyDto dto)
     {
-        Console.WriteLine("StoreKey Called");
-        Console.WriteLine("ReceiverId: " + dto.ReceiverId);
-        Console.WriteLine("EncryptedKey: " + dto.EncryptedKey);
-
         if (dto.ReceiverId == Guid.Empty || string.IsNullOrWhiteSpace(dto.EncryptedKey))
             return BadRequest("Invalid payload");
 
@@ -52,7 +39,4 @@ public class KeysController : ControllerBase
 
         return Ok();
     }
-
-
 }
-

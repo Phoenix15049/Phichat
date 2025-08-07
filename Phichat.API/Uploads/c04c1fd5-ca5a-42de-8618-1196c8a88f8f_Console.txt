@@ -1,0 +1,24 @@
+@microsoft_signalr.js?v=f37c44e2:299 [2025-07-24T15:29:42.277Z] Information: WebSocket connected to wss://localhost:7146/chat?id=pJxhN5NLrwoIHLazongX6Q&access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6Ijg5ZmNjOTIyLWQ3ZmYtNDBkMy1hNjczLTY2ODAzZGRiZGUwOSIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL25hbWUiOiJhYm9sIiwiZXhwIjoxNzUzOTc1NzgxLCJpc3MiOiJQaGljaGF0SXNzdWVyIiwiYXVkIjoiUGhpY2hhdEF1ZGllbmNlIn0.DxKPmiNVBJW_XKvPWm5AcIkQsq3eHEVjOASm_bL5Zos.
+ChatView.vue:124 📦 imported key: CryptoKey {type: 'secret', extractable: true, algorithm: {…}, usages: Array(2)}
+ChatView.vue:130 🔐 Trying to decrypt message with AES Key: CryptoKey {type: 'secret', extractable: true, algorithm: {…}, usages: Array(2)}
+ChatView.vue:131 🧾 Encrypted content: GreFvyA1mS9Pe6u/BZYAU7KG/muXlj6viER03cA3X5GAWAAE
+crypto.ts:76 🧪 Running AES decryption...
+crypto.ts:77 🔑 Key: CryptoKey {type: 'secret', extractable: true, algorithm: {…}, usages: Array(2)}
+crypto.ts:78 🔁 IV: Uint8Array(12) [26, 183, 133, 191, 32, 53, 153, 47, 79, 123, 171, 191, buffer: ArrayBuffer(12), byteLength: 12, byteOffset: 0, length: 12, Symbol(Symbol.toStringTag): 'Uint8Array']0: 261: 1832: 1333: 1914: 325: 536: 1537: 478: 799: 12310: 17111: 191buffer: ArrayBuffer(12)byteLength: 12byteOffset: 0length: 12Symbol(Symbol.toStringTag): "Uint8Array"[[Prototype]]: TypedArray
+crypto.ts:79 📦 Ciphertext: Uint8Array(24) [5, 150, 0, 83, 178, 134, 254, 107, 151, 150, 62, 175, 136, 68, 116, 221, 192, 55, 95, 145, 128, 88, 0, 4, buffer: ArrayBuffer(24), byteLength: 24, byteOffset: 0, length: 24, Symbol(Symbol.toStringTag): 'Uint8Array']
+crypto.ts:90 ❌ Decryption failed: OperationError
+decryptAES @ crypto.ts:90
+await in decryptAES
+loadMessages @ ChatView.vue:132
+await in loadMessages
+handleUserSelect @ ChatView.vue:208
+await in handleUserSelect
+callWithErrorHandling @ chunk-VZXQDS5F.js?v=f37c44e2:2272
+callWithAsyncErrorHandling @ chunk-VZXQDS5F.js?v=f37c44e2:2279
+emit @ chunk-VZXQDS5F.js?v=f37c44e2:8533
+(anonymous) @ chunk-VZXQDS5F.js?v=f37c44e2:10242
+selectUser @ UserList.vue:26
+onClick @ UserList.vue:6
+callWithErrorHandling @ chunk-VZXQDS5F.js?v=f37c44e2:2272
+callWithAsyncErrorHandling @ chunk-VZXQDS5F.js?v=f37c44e2:2279
+invoker @ chunk-VZXQDS5F.js?v=f37c44e2:11271
