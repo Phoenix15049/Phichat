@@ -12,12 +12,11 @@ using System.Security.Claims;
 public class UsersController : ControllerBase
 {
     private readonly IUserService _userService;
-    private readonly IUserQueryService _userQueryService;
+
     private readonly AppDbContext _context;
-    public UsersController(AppDbContext context, IUserQueryService userQueryService, IUserService userService)
+    public UsersController(AppDbContext context, IUserService userService)
     {
         _context = context;
-        _userQueryService = userQueryService;
         _userService = userService;
     }
 

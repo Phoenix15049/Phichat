@@ -53,9 +53,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 
-builder.Services.AddScoped<IUserQueryService, UserQueryService>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+
 builder.Services.AddScoped<IMessageService, MessageService>();
 builder.Services.AddScoped<IChatKeyService, ChatKeyService>();
 

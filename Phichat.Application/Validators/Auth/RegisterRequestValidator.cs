@@ -13,7 +13,5 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
             .NotEmpty().WithMessage("Password is required.")
             .MinimumLength(6);
 
-        RuleFor(x => x.PublicKey)
-            .NotEmpty().WithMessage("Public key is required.");
     }
 }
