@@ -26,7 +26,8 @@ public class MessageService : IMessageService
             Id = Guid.NewGuid(),
             SenderId = senderId,
             ReceiverId = request.ReceiverId,
-            EncryptedContent = request.EncryptedText, 
+            EncryptedContent = request.EncryptedText,
+            FileUrl = request.FileUrl,
             SentAt = DateTime.UtcNow
         };
 
@@ -49,7 +50,7 @@ public class MessageService : IMessageService
                 SenderId = m.SenderId,
                 EncryptedContent = m.EncryptedContent,
                 SentAt = m.SentAt,
-                FileUrl = m.FileUrl // اگه لازم باشه
+                FileUrl = m.FileUrl 
             })
             .ToListAsync();
     }

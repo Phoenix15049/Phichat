@@ -1,9 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 using Phichat.Application.DTOs.Message;
 using Phichat.Application.Interfaces;
-using Phichat.Infrastructure.Data;
 
 namespace Phichat.API.Hubs;
 
@@ -22,6 +20,7 @@ public class ChatHub : Hub
     {
         public Guid ReceiverId { get; set; }
         public string EncryptedText { get; set; } = string.Empty;
+        public string? FileUrl { get; set; }
     }
 
     public override Task OnConnectedAsync()
@@ -52,28 +51,28 @@ public class ChatHub : Hub
 
         if (!Guid.TryParse(senderIdStr, out var senderId))
             return;
-
+        Console.WriteLine($"📨 SendMessage: senderId={senderId}, receiverId={dto.ReceiverId}, text={dto.EncryptedText}");
         var request = new SendMessageRequest
         {
             ReceiverId = dto.ReceiverId,
-            EncryptedText = dto.EncryptedText
+            EncryptedText = dto.EncryptedText,
+            FileUrl = dto.FileUrl // pass along
         };
-
         await _messageService.SendMessageAsync(senderId, request);
+
 
         if (OnlineUsers.TryGetValue(dto.ReceiverId, out var receiverConnectionId))
         {
+            Console.WriteLine($"✅ Reciever is Online {receiverConnectionId}");
             await Clients.Client(receiverConnectionId).SendAsync("ReceiveMessage", new
             {
                 SenderId = senderId,
                 EncryptedText = dto.EncryptedText,
+                FileUrl = dto.FileUrl ?? null,
                 SentAt = DateTime.UtcNow
             });
         }
     }
-
-
-
 
     public async Task SendMessageWithFile(SendMessageViaHubRequest request)
     {
@@ -85,7 +84,6 @@ public class ChatHub : Hub
 
         await _messageService.SendMessageFromHubAsync(senderId, request, uploadPath);
 
-        // فایل در MessageService ذخیره شده، باید url رو از دیتابیس بگیریم
         var latest = await _messageService.GetLastMessageBetweenAsync(senderId, request.ReceiverId);
 
         if (OnlineUsers.TryGetValue(request.ReceiverId, out var connId))
@@ -94,15 +92,11 @@ public class ChatHub : Hub
             {
                 SenderId = senderId,
                 EncryptedText = request.EncryptedText,
-                FileUrl = latest?.FileUrl, // 👈 لینک واقعی فایل
+                FileUrl = latest?.FileUrl,
                 SentAt = latest?.SentAt ?? DateTime.UtcNow
             });
         }
     }
-
-
-
-
 
     public async Task MarkMessageAsRead(Guid messageId)
     {
@@ -124,9 +118,4 @@ public class ChatHub : Hub
             });
         }
     }
-
-
-
-
-
 }
