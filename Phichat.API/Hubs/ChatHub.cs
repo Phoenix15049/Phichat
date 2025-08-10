@@ -21,6 +21,7 @@ public class ChatHub : Hub
         public Guid ReceiverId { get; set; }
         public string EncryptedText { get; set; } = string.Empty;
         public string? FileUrl { get; set; }
+        public string? ClientId { get; set; }
     }
 
     public override Task OnConnectedAsync()
@@ -48,31 +49,50 @@ public class ChatHub : Hub
     public async Task SendMessage(SimpleMessageDto dto)
     {
         var senderIdStr = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
-
         if (!Guid.TryParse(senderIdStr, out var senderId))
             return;
-        Console.WriteLine($"📨 SendMessage: senderId={senderId}, receiverId={dto.ReceiverId}, text={dto.EncryptedText}");
+
+
+
         var request = new SendMessageRequest
         {
             ReceiverId = dto.ReceiverId,
             EncryptedText = dto.EncryptedText,
-            FileUrl = dto.FileUrl // pass along
+            FileUrl = dto.FileUrl // pass file if any
         };
+
         await _messageService.SendMessageAsync(senderId, request);
 
+        // fetch saved message to get Id & SentAt
+        var latest = await _messageService.GetLastMessageBetweenAsync(senderId, dto.ReceiverId);
 
-        if (OnlineUsers.TryGetValue(dto.ReceiverId, out var receiverConnectionId))
+        // send to receiver if online
+        if (OnlineUsers.TryGetValue(dto.ReceiverId, out var receiverConn))
         {
-            Console.WriteLine($"✅ Reciever is Online {receiverConnectionId}");
-            await Clients.Client(receiverConnectionId).SendAsync("ReceiveMessage", new
+            await Clients.Client(receiverConn).SendAsync("ReceiveMessage", new
             {
+                MessageId = latest?.Id,       // 👈 add message id
                 SenderId = senderId,
                 EncryptedText = dto.EncryptedText,
-                FileUrl = dto.FileUrl ?? null,
-                SentAt = DateTime.UtcNow
+                FileUrl = dto.FileUrl,
+                SentAt = latest?.SentAt ?? DateTime.UtcNow
+            });
+        }
+
+        if (OnlineUsers.TryGetValue(senderId, out var sc))
+        {
+            await Clients.Client(sc).SendAsync("Delivered", new
+            {
+                MessageId = latest?.Id,
+                ReceiverId = dto.ReceiverId,
+                ClientId = dto.ClientId,            // <- echo back
+                SentAt = latest?.SentAt ?? DateTime.UtcNow
             });
         }
     }
+
+
+
 
     public async Task SendMessageWithFile(SendMessageViaHubRequest request)
     {
@@ -90,9 +110,20 @@ public class ChatHub : Hub
         {
             await Clients.Client(connId).SendAsync("ReceiveMessage", new
             {
+                MessageId = latest?.Id,                 // 👈 add id
                 SenderId = senderId,
                 EncryptedText = request.EncryptedText,
                 FileUrl = latest?.FileUrl,
+                SentAt = latest?.SentAt ?? DateTime.UtcNow
+            });
+        }
+
+        if (OnlineUsers.TryGetValue(senderId, out var senderConn))
+        {
+            await Clients.Client(senderConn).SendAsync("Delivered", new
+            {
+                MessageId = latest?.Id,
+                ReceiverId = request.ReceiverId,
                 SentAt = latest?.SentAt ?? DateTime.UtcNow
             });
         }

@@ -50,7 +50,8 @@ public class MessageService : IMessageService
                 SenderId = m.SenderId,
                 EncryptedContent = m.EncryptedContent,
                 SentAt = m.SentAt,
-                FileUrl = m.FileUrl 
+                FileUrl = m.FileUrl,
+                IsRead = m.IsRead
             })
             .ToListAsync();
     }
