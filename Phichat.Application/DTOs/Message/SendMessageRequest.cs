@@ -3,5 +3,7 @@
 public class SendMessageRequest
 {
     public Guid ReceiverId { get; set; }
-    public string EncryptedText { get; set; } // متن رمز‌شده AES در Base64
+    public string EncryptedText { get; set; }
+    public string? FileUrl { get; set; }
+
 }
