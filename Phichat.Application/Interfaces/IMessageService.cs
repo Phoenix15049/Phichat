@@ -1,5 +1,5 @@
 ﻿using Phichat.Application.DTOs.Message;
-
+using Phichat.Application.DTOs.Message;
 public interface IMessageService
 {
     Task SendMessageAsync(Guid senderId, SendMessageRequest request);
