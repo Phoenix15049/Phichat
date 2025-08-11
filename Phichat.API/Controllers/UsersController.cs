@@ -50,4 +50,62 @@ public class UsersController : ControllerBase
         return Ok(user);
     }
 
+    [HttpGet("by-username/{username}")]
+    public async Task<IActionResult> GetByUsername(string username)
+    {
+        var u = await _context.Users
+            .Where(x => x.Username == username)
+            .Select(x => new UserProfileDto
+            {
+                Id = x.Id,
+                Username = x.Username,
+                DisplayName = x.DisplayName,
+                AvatarUrl = x.AvatarUrl,
+                Bio = x.Bio,
+                LastSeenUtc = x.LastSeenUtc
+            })
+            .FirstOrDefaultAsync();
+
+        if (u == null) return NotFound();
+        return Ok(u);
+    }
+
+    [Authorize]
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMe()
+    {
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var u = await _context.Users
+            .Where(x => x.Id == userId)
+            .Select(x => new UserProfileDto
+            {
+                Id = x.Id,
+                Username = x.Username,
+                DisplayName = x.DisplayName,
+                AvatarUrl = x.AvatarUrl,
+                Bio = x.Bio,
+                LastSeenUtc = x.LastSeenUtc
+            })
+            .FirstOrDefaultAsync();
+
+        if (u == null) return NotFound();
+        return Ok(u);
+    }
+
+    [Authorize]
+    [HttpPut("profile")]
+    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest req)
+    {
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null) return NotFound();
+
+        user.DisplayName = req.DisplayName?.Trim();
+        user.AvatarUrl = req.AvatarUrl?.Trim();
+        user.Bio = req.Bio?.Trim();
+
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
 }
