@@ -28,7 +28,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(x => x.Username).IsUnique();
             entity.Property(x => x.Username).IsRequired().HasMaxLength(50);
             entity.Property(x => x.PasswordHash).IsRequired();
-      
+
         });
 
         // Message config
@@ -53,6 +53,10 @@ public class AppDbContext : DbContext
         {
             b.HasKey(x => x.Id);
         });
+
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Username)
+            .IsUnique();
 
     }
 }

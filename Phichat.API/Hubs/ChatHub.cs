@@ -2,6 +2,8 @@
 using Microsoft.AspNetCore.SignalR;
 using Phichat.Application.DTOs.Message;
 using Phichat.Application.Interfaces;
+using Phichat.Infrastructure.Data;
+using System.Security.Claims;
 
 namespace Phichat.API.Hubs;
 
@@ -35,16 +37,26 @@ public class ChatHub : Hub
         return base.OnConnectedAsync();
     }
 
-    public override Task OnDisconnectedAsync(Exception? exception)
+    public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        var userId = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
-        if (Guid.TryParse(userId, out var id))
+        var userIdStr = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (Guid.TryParse(userIdStr, out var id))
         {
             OnlineUsers.Remove(id);
+
+            using var scope = Context.GetHttpContext()!.RequestServices.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var u = await db.Users.FindAsync(id);
+            if (u != null)
+            {
+                u.LastSeenUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
         }
 
-        return base.OnDisconnectedAsync(exception);
+        await base.OnDisconnectedAsync(exception);
     }
+
 
     public async Task SendMessage(SimpleMessageDto dto)
     {
