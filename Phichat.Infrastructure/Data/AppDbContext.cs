@@ -14,6 +14,8 @@ public class AppDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<ChatKey> ChatKeys { get; set; }
+    public DbSet<Contact> Contacts => Set<Contact>();
+
 
 
 
@@ -57,6 +59,23 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Username)
             .IsUnique();
+
+
+        modelBuilder.Entity<Contact>()
+            .HasIndex(c => new { c.OwnerId, c.ContactId })
+            .IsUnique();
+
+        modelBuilder.Entity<Contact>()
+            .HasOne(c => c.Owner)
+            .WithMany()
+            .HasForeignKey(c => c.OwnerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Contact>()
+            .HasOne(c => c.ContactUser)
+            .WithMany()
+            .HasForeignKey(c => c.ContactId)
+            .OnDelete(DeleteBehavior.Restrict);
 
     }
 }
