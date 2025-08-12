@@ -170,6 +170,55 @@ public class MessageService : IMessageService
     }
 
 
+    public async Task<List<ConversationDto>> GetConversationsAsync(Guid currentUserId)
+    {
+        // Base query for user's messages
+        var baseQuery = _context.Messages
+            .Where(m => m.SenderId == currentUserId || m.ReceiverId == currentUserId)
+            .Select(m => new
+            {
+                PeerId = m.SenderId == currentUserId ? m.ReceiverId : m.SenderId,
+                Msg = m
+            });
+
+        // Group by peer and compute last message + unread count
+        var grouped = await baseQuery
+            .GroupBy(x => x.PeerId)
+            .Select(g => new
+            {
+                PeerId = g.Key,
+                Last = g.OrderByDescending(x => x.Msg.SentAt).FirstOrDefault()!.Msg,
+                Unread = g.Count(x => x.Msg.ReceiverId == currentUserId && !x.Msg.IsRead)
+            })
+            .ToListAsync();
+
+        var peerIds = grouped.Select(x => x.PeerId).ToList();
+        var peers = await _context.Users
+            .Where(u => peerIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.Username, u.DisplayName, u.AvatarUrl })
+            .ToListAsync();
+
+        var result = grouped
+            .Select(x =>
+            {
+                var p = peers.FirstOrDefault(u => u.Id == x.PeerId);
+                return new ConversationDto
+                {
+                    PeerId = x.PeerId,
+                    PeerUsername = p?.Username ?? "unknown",
+                    PeerDisplayName = p?.DisplayName,
+                    PeerAvatarUrl = p?.AvatarUrl,
+                    LastEncryptedContent = x.Last.EncryptedContent,
+                    LastFileUrl = x.Last.FileUrl,
+                    LastSentAt = x.Last.SentAt,
+                    UnreadCount = x.Unread
+                };
+            })
+            .OrderByDescending(c => c.LastSentAt)
+            .ToList();
+
+        return result;
+    }
 
 
 }

@@ -9,6 +9,6 @@ public interface IMessageService
     Task<MessageReadResult> MarkAsReadAsync(Guid messageId, Guid readerId);
     Task<Message?> GetLastMessageBetweenAsync(Guid senderId, Guid receiverId);
     Task<List<ReceivedMessageResponse>> GetConversationAsync(Guid currentUserId, Guid otherUserId);
-
+    Task<List<ConversationDto>> GetConversationsAsync(Guid currentUserId);
 
 }
