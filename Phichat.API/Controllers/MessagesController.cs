@@ -97,4 +97,12 @@ public class MessagesController : ControllerBase
         var messages = await _messageService.GetReceivedMessagesAsync(userId);
         return Ok(messages);
     }
+
+    [HttpGet("conversations")]
+    public async Task<IActionResult> GetConversations()
+    {
+        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var data = await _messageService.GetConversationsAsync(me);
+        return Ok(data);
+    }
 }
