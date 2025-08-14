@@ -12,11 +12,14 @@ public class ChatHub : Hub
 {
     private static readonly Dictionary<Guid, string> OnlineUsers = new();
     private readonly IMessageService _messageService;
+    private readonly IUserService _userService; // NEW
 
-    public ChatHub(IMessageService messageService)
+    public ChatHub(IMessageService messageService, IUserService userService) // NEW
     {
         _messageService = messageService;
+        _userService = userService;
     }
+
 
     public class SimpleMessageDto
     {
@@ -26,34 +29,39 @@ public class ChatHub : Hub
         public string? ClientId { get; set; }
     }
 
-    public override Task OnConnectedAsync()
+    public override async Task OnConnectedAsync()
     {
         var userId = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
         if (Guid.TryParse(userId, out var id))
         {
             OnlineUsers[id] = Context.ConnectionId;
-        }
 
-        return base.OnConnectedAsync();
+            var now = DateTime.UtcNow;
+            await _userService.UpdateLastSeenAsync(id, now);
+
+            await Clients.All.SendAsync("UserOnline", id.ToString(), now.ToString("o"));
+            var snapshot = OnlineUsers.Keys.Select(g => g.ToString()).ToArray();
+            await Clients.Caller.SendAsync("OnlineSnapshot", snapshot);
+
+            await Clients.All.SendAsync("UserLastSeen", id.ToString(), now.ToString("o"));
+        }
+        await base.OnConnectedAsync();
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        var userIdStr = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (Guid.TryParse(userIdStr, out var id))
+        var userId = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+        if (Guid.TryParse(userId, out var id))
         {
             OnlineUsers.Remove(id);
 
-            using var scope = Context.GetHttpContext()!.RequestServices.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var u = await db.Users.FindAsync(id);
-            if (u != null)
-            {
-                u.LastSeenUtc = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-            }
-        }
+            var now = DateTime.UtcNow;
+            await _userService.UpdateLastSeenAsync(id, now);
 
+            await Clients.All.SendAsync("UserOffline", id.ToString(), now.ToString("o"));
+
+            await Clients.All.SendAsync("UserLastSeen", id.ToString(), now.ToString("o"));
+        }
         await base.OnDisconnectedAsync(exception);
     }
 
@@ -161,4 +169,37 @@ public class ChatHub : Hub
             });
         }
     }
+
+    [Authorize]
+    public async Task StartTyping(Guid receiverId)
+    {
+        var senderIdStr = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+        if (!Guid.TryParse(senderIdStr, out var senderId)) return;
+
+        if (OnlineUsers.TryGetValue(receiverId, out var recvConn))
+        {
+            await Clients.Client(recvConn).SendAsync("UserTyping", new
+            {
+                SenderId = senderId,
+                At = DateTime.UtcNow
+            });
+        }
+    }
+
+    [Authorize]
+    public async Task StopTyping(Guid receiverId)
+    {
+        var senderIdStr = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+        if (!Guid.TryParse(senderIdStr, out var senderId)) return;
+
+        if (OnlineUsers.TryGetValue(receiverId, out var recvConn))
+        {
+            await Clients.Client(recvConn).SendAsync("UserStoppedTyping", new
+            {
+                SenderId = senderId,
+                At = DateTime.UtcNow
+            });
+        }
+    }
+
 }

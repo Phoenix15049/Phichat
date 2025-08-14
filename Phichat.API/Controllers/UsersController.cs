@@ -29,11 +29,11 @@ public class UsersController : ControllerBase
         var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
         var users = await _context.Users
-            .Where(u => u.Id != currentUserId)
-            .Select(u => new
+            .Select(u => new UserDto
             {
-                u.Id,
-                u.Username
+                Id = u.Id,
+                Username = u.Username,
+                LastSeenUtc = u.LastSeenUtc
             })
             .ToListAsync();
 
