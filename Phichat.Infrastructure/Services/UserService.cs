@@ -114,5 +114,15 @@ public class UserService : IUserService
     }
 
 
+    public async Task UpdateLastSeenAsync(Guid userId, DateTime utcNow)
+    {
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null) return;
+        user.LastSeenUtc = utcNow;
+        await _context.SaveChangesAsync();
+    }
+
+
+
 
 }
