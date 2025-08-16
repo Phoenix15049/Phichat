@@ -13,11 +13,12 @@ public class ChatHub : Hub
     private static readonly Dictionary<Guid, string> OnlineUsers = new();
     private readonly IMessageService _messageService;
     private readonly IUserService _userService; // NEW
-
-    public ChatHub(IMessageService messageService, IUserService userService) // NEW
+    private readonly ILogger<ChatHub> _logger;
+    public ChatHub(IMessageService messageService, IUserService userService, ILogger<ChatHub> logger) // NEW
     {
         _messageService = messageService;
         _userService = userService;
+        _logger = logger;
     }
 
 
@@ -170,34 +171,32 @@ public class ChatHub : Hub
         }
     }
 
-    [Authorize]
     public async Task StartTyping(Guid receiverId)
     {
-        var senderIdStr = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
-        if (!Guid.TryParse(senderIdStr, out var senderId)) return;
+        var me = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+        if (!Guid.TryParse(me, out var senderId)) return;
 
         if (OnlineUsers.TryGetValue(receiverId, out var recvConn))
         {
             await Clients.Client(recvConn).SendAsync("UserTyping", new
             {
-                SenderId = senderId,
-                At = DateTime.UtcNow
+                SenderId = senderId.ToString(),
+                At = DateTime.UtcNow.ToString("o")
             });
         }
     }
 
-    [Authorize]
     public async Task StopTyping(Guid receiverId)
     {
-        var senderIdStr = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
-        if (!Guid.TryParse(senderIdStr, out var senderId)) return;
+        var me = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+        if (!Guid.TryParse(me, out var senderId)) return;
 
         if (OnlineUsers.TryGetValue(receiverId, out var recvConn))
         {
             await Clients.Client(recvConn).SendAsync("UserStoppedTyping", new
             {
-                SenderId = senderId,
-                At = DateTime.UtcNow
+                SenderId = senderId.ToString(),
+                At = DateTime.UtcNow.ToString("o")
             });
         }
     }
