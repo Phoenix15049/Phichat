@@ -28,7 +28,10 @@ public class MessageService : IMessageService
             ReceiverId = request.ReceiverId,
             EncryptedContent = request.EncryptedText,
             FileUrl = request.FileUrl,
-            SentAt = DateTime.UtcNow
+            SentAt = DateTime.UtcNow,
+            ReplyToMessageId = request.ReplyToMessageId
+
+
         };
 
         message.DeliveredAtUtc = DateTime.UtcNow;
@@ -53,7 +56,8 @@ public class MessageService : IMessageService
                 EncryptedContent = m.EncryptedContent,
                 SentAt = m.SentAt,
                 FileUrl = m.FileUrl,
-                IsRead = m.IsRead
+                IsRead = m.IsRead,
+                ReplyToMessageId = m.ReplyToMessageId
             })
             .ToListAsync();
     }
@@ -88,7 +92,9 @@ public class MessageService : IMessageService
             ReceiverId = request.ReceiverId,
             EncryptedContent = encryptedText ?? "",
             FileUrl = savedPath,
-            SentAt = DateTime.UtcNow
+            SentAt = DateTime.UtcNow,
+            ReplyToMessageId = request.ReplyToMessageId
+
         };
 
         message.DeliveredAtUtc = DateTime.UtcNow;
@@ -121,7 +127,8 @@ public class MessageService : IMessageService
             ReceiverId = request.ReceiverId,
             EncryptedContent = encryptedContent,
             FileUrl = fileUrl,
-            SentAt = DateTime.UtcNow
+            SentAt = DateTime.UtcNow,
+            ReplyToMessageId = request.ReplyToMessageId
         };
 
         message.DeliveredAtUtc = DateTime.UtcNow;
@@ -173,7 +180,8 @@ public class MessageService : IMessageService
                 SenderId = m.SenderId,
                 EncryptedContent = m.EncryptedContent,
                 SentAt = m.SentAt,
-                FileUrl = m.FileUrl
+                FileUrl = m.FileUrl,
+                ReplyToMessageId = m.ReplyToMessageId
             }).ToListAsync();
     }
 
@@ -267,7 +275,9 @@ public class MessageService : IMessageService
             FileUrl = m.FileUrl,
             IsRead = m.IsRead,
             DeliveredAtUtc = m.DeliveredAtUtc,
-            ReadAtUtc = m.ReadAtUtc
+            ReadAtUtc = m.ReadAtUtc,
+            ReplyToMessageId = m.ReplyToMessageId
+
         }).ToList();
 
         return new PagedMessagesResponse

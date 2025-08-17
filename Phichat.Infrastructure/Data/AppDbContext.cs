@@ -92,6 +92,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Message>()
             .HasIndex(m => new { m.SenderId, m.ReceiverId, m.SentAt });
 
+        modelBuilder.Entity<Message>()
+            .HasOne(m => m.ReplyToMessage)
+            .WithMany()
+            .HasForeignKey(m => m.ReplyToMessageId)
+            .OnDelete(DeleteBehavior.Restrict);
 
 
     }
