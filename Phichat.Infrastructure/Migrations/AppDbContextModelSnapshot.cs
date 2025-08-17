@@ -28,6 +28,9 @@ namespace Phichat.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTime?>("DeliveredAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("EncryptedContent")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -37,6 +40,9 @@ namespace Phichat.Infrastructure.Migrations
 
                     b.Property<bool>("IsRead")
                         .HasColumnType("bit");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<Guid>("ReceiverId")
                         .HasColumnType("uniqueidentifier");

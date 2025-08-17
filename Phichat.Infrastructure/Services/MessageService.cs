@@ -31,6 +31,8 @@ public class MessageService : IMessageService
             SentAt = DateTime.UtcNow
         };
 
+        message.DeliveredAtUtc = DateTime.UtcNow;
+
 
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
@@ -89,6 +91,7 @@ public class MessageService : IMessageService
             SentAt = DateTime.UtcNow
         };
 
+        message.DeliveredAtUtc = DateTime.UtcNow;
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
     }
@@ -121,6 +124,8 @@ public class MessageService : IMessageService
             SentAt = DateTime.UtcNow
         };
 
+        message.DeliveredAtUtc = DateTime.UtcNow;
+
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
     }
@@ -140,7 +145,10 @@ public class MessageService : IMessageService
         return new MessageReadResult
         {
             Success = true,
-            SenderId = message.SenderId
+            SenderId = message.SenderId,
+            MessageId = message.Id,            
+            ReadAtUtc = message.ReadAtUtc
+
         };
     }
 

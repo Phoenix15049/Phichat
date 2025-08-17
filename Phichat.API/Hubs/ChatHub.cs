@@ -107,7 +107,8 @@ public class ChatHub : Hub
                 MessageId = latest?.Id,
                 ReceiverId = dto.ReceiverId,
                 ClientId = dto.ClientId,            // <- echo back
-                SentAt = latest?.SentAt ?? DateTime.UtcNow
+                SentAt = latest?.SentAt ?? DateTime.UtcNow,
+                deliveredAtUtc = latest?.DeliveredAtUtc
             });
         }
     }
@@ -166,7 +167,8 @@ public class ChatHub : Hub
             await Clients.Client(senderConn).SendAsync("MessageRead", new
             {
                 MessageId = messageId,
-                ReaderId = userId
+                ReaderId = userId,
+                readAtUtc = result.ReadAtUtc
             });
         }
     }
