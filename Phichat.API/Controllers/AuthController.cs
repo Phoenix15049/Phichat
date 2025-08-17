@@ -33,4 +33,28 @@ public class AuthController : ControllerBase
 
 
 
+    [HttpPost("register-phone")]
+    public async Task<IActionResult> RegisterWithPhone([FromBody] RegisterWithPhoneRequest request)
+    {
+        var result = await _userService.RegisterWithPhoneAsync(request);
+        return Ok(result);
+    }
+
+    [HttpPost("request-sms-code")]
+    public async Task<IActionResult> RequestSmsCode([FromBody] RequestSmsCodeRequest request)
+    {
+        await _userService.RequestSmsCodeAsync(request.PhoneNumber);
+        return Ok();
+    }
+
+    [HttpPost("login-sms")]
+    public async Task<IActionResult> LoginWithSms([FromBody] LoginWithSmsRequest request)
+    {
+        var result = await _userService.LoginWithSmsAsync(request);
+        return Ok(result);
+    }
+
+
+
+
 }
