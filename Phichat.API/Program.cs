@@ -54,7 +54,7 @@ builder.Services.AddSwaggerGen();
 
 
 builder.Services.AddScoped<IUserService, UserService>();
-
+builder.Services.AddSingleton<ISmsSender, ConsoleSmsSender>();
 builder.Services.AddScoped<IMessageService, MessageService>();
 builder.Services.AddScoped<IChatKeyService, ChatKeyService>();
 

@@ -15,7 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<ChatKey> ChatKeys { get; set; }
     public DbSet<Contact> Contacts => Set<Contact>();
-
+    public DbSet<PhoneVerification> PhoneVerifications => Set<PhoneVerification>();
 
 
 
@@ -76,6 +76,16 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(c => c.ContactId)
             .OnDelete(DeleteBehavior.Restrict);
+
+
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.PhoneNumber)
+            .IsUnique()
+            .HasFilter("[PhoneNumber] IS NOT NULL");
+
+        modelBuilder.Entity<PhoneVerification>()
+            .HasIndex(p => p.PhoneNumber);
+
 
     }
 }

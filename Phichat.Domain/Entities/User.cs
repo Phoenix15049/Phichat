@@ -11,4 +11,6 @@ public class User
     public string? Bio { get; set; }
     public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
 
+    public string? PhoneNumber { get; set; }   // E.164 like +98912...
+    public bool PhoneVerified { get; set; } = false;
 }
