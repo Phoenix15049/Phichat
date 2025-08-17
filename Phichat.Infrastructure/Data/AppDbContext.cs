@@ -86,6 +86,13 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PhoneVerification>()
             .HasIndex(p => p.PhoneNumber);
 
+        modelBuilder.Entity<Message>()
+            .HasIndex(m => m.SentAt);
+
+        modelBuilder.Entity<Message>()
+            .HasIndex(m => new { m.SenderId, m.ReceiverId, m.SentAt });
+
+
 
     }
 }

@@ -10,5 +10,7 @@ public interface IMessageService
     Task<Message?> GetLastMessageBetweenAsync(Guid senderId, Guid receiverId);
     Task<List<ReceivedMessageResponse>> GetConversationAsync(Guid currentUserId, Guid otherUserId);
     Task<List<ConversationDto>> GetConversationsAsync(Guid currentUserId);
+    Task<PagedMessagesResponse> GetConversationPageAsync(Guid me, Guid other, Guid? beforeId, int pageSize);
+
 
 }

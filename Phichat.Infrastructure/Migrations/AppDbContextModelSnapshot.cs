@@ -57,7 +57,9 @@ namespace Phichat.Infrastructure.Migrations
 
                     b.HasIndex("ReceiverId");
 
-                    b.HasIndex("SenderId");
+                    b.HasIndex("SentAt");
+
+                    b.HasIndex("SenderId", "ReceiverId", "SentAt");
 
                     b.ToTable("Messages");
                 });
