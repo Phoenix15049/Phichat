@@ -10,4 +10,6 @@ public class ReceivedMessageResponse
     public DateTime? ReadAtUtc { get; set; }
     public string? FileUrl { get; set; }
     public bool IsRead { get; set; }
+    public Guid? ReplyToMessageId { get; set; }
+
 }

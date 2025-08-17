@@ -28,6 +28,7 @@ public class ChatHub : Hub
         public string EncryptedText { get; set; } = string.Empty;
         public string? FileUrl { get; set; }
         public string? ClientId { get; set; }
+        public Guid? ReplyToMessageId { get; set; }
     }
 
     public override async Task OnConnectedAsync()
@@ -79,7 +80,9 @@ public class ChatHub : Hub
         {
             ReceiverId = dto.ReceiverId,
             EncryptedText = dto.EncryptedText,
-            FileUrl = dto.FileUrl // pass file if any
+            FileUrl = dto.FileUrl,
+            ReplyToMessageId = dto.ReplyToMessageId
+
         };
 
         await _messageService.SendMessageAsync(senderId, request);
@@ -96,7 +99,8 @@ public class ChatHub : Hub
                 SenderId = senderId,
                 EncryptedText = dto.EncryptedText,
                 FileUrl = dto.FileUrl,
-                SentAt = latest?.SentAt ?? DateTime.UtcNow
+                SentAt = latest?.SentAt ?? DateTime.UtcNow,
+                ReplyToMessageId = dto.ReplyToMessageId
             });
         }
 
@@ -132,11 +136,13 @@ public class ChatHub : Hub
         {
             await Clients.Client(connId).SendAsync("ReceiveMessage", new
             {
-                MessageId = latest?.Id,                 // 👈 add id
+                MessageId = latest?.Id,
                 SenderId = senderId,
                 EncryptedText = request.EncryptedText,
                 FileUrl = latest?.FileUrl,
-                SentAt = latest?.SentAt ?? DateTime.UtcNow
+                SentAt = latest?.SentAt ?? DateTime.UtcNow,
+                ReplyToMessageId = request.ReplyToMessageId
+
             });
         }
 

@@ -19,4 +19,7 @@ public class Message
 
     public bool IsRead { get; set; } = false;
 
+    public Guid? ReplyToMessageId { get; set; }
+    public Message? ReplyToMessage { get; set; }
+
 }
