@@ -6,7 +6,11 @@ public class Message
     public Guid SenderId { get; set; }
     public Guid ReceiverId { get; set; }
     public string EncryptedContent { get; set; } = default!;
+
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
+    public DateTime? DeliveredAtUtc { get; set; }
+    public DateTime? ReadAtUtc { get; set; }
+
 
     public User Sender { get; set; } = default!;
     public User Receiver { get; set; } = default!;
