@@ -105,4 +105,21 @@ public class MessagesController : ControllerBase
         var data = await _messageService.GetConversationsAsync(me);
         return Ok(data);
     }
+
+
+    [Authorize]
+    [HttpGet("with-paged/{userId:guid}")]
+    public async Task<IActionResult> GetWithPaged(Guid userId, [FromQuery] string? beforeId = null, [FromQuery] int pageSize = 50)
+    {
+        var me = Guid.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+        Guid? anchor = null;
+        if (!string.IsNullOrWhiteSpace(beforeId) && Guid.TryParse(beforeId, out var g)) anchor = g;
+
+        var result = await _messageService.GetConversationPageAsync(me, userId, anchor, pageSize);
+        return Ok(result);
+    }
+
+
+
+
 }

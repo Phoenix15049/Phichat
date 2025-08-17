@@ -229,4 +229,54 @@ public class MessageService : IMessageService
     }
 
 
+    public async Task<PagedMessagesResponse> GetConversationPageAsync(Guid me, Guid other, Guid? beforeId, int pageSize)
+    {
+        DateTime? beforeSentAt = null;
+        if (beforeId.HasValue)
+        {
+            var anchor = await _context.Messages.AsNoTracking()
+                .FirstOrDefaultAsync(m => m.Id == beforeId.Value);
+            if (anchor != null) beforeSentAt = anchor.SentAt;
+        }
+
+        var q = _context.Messages.AsNoTracking()
+            .Where(m => (m.SenderId == me && m.ReceiverId == other) || (m.SenderId == other && m.ReceiverId == me));
+
+        if (beforeSentAt.HasValue)
+            q = q.Where(m => m.SentAt < beforeSentAt.Value);
+
+        // pageSize+1 برای تشخیص HasMore
+        var rows = await q
+            .OrderByDescending(m => m.SentAt)
+            .ThenByDescending(m => m.Id)
+            .Take(pageSize + 1)
+            .ToListAsync();
+
+        var hasMore = rows.Count > pageSize;
+        if (hasMore) rows.RemoveAt(rows.Count - 1); // oldest extra
+
+        // به ترتیب صعودی برای UI
+        rows.Reverse();
+
+        var items = rows.Select(m => new ReceivedMessageResponse
+        {
+            MessageId = m.Id,
+            SenderId = m.SenderId,
+            EncryptedContent = m.EncryptedContent,
+            SentAt = m.SentAt,
+            FileUrl = m.FileUrl,
+            IsRead = m.IsRead,
+            DeliveredAtUtc = m.DeliveredAtUtc,
+            ReadAtUtc = m.ReadAtUtc
+        }).ToList();
+
+        return new PagedMessagesResponse
+        {
+            Items = items,
+            HasMore = hasMore,
+            OldestId = items.FirstOrDefault()?.MessageId.ToString()
+        };
+    }
+
+
 }
