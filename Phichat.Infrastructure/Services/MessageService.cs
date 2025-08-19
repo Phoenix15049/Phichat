@@ -51,6 +51,7 @@ public class MessageService : IMessageService
             .Where(m =>
                 ((m.SenderId == currentUserId && m.ReceiverId == otherUserId) ||
                  (m.SenderId == otherUserId && m.ReceiverId == currentUserId)) &&
+                 !m.IsDeleted &&
                 !hiddenIds.Contains(m.Id))
             .OrderBy(m => m.SentAt)
             .Select(m => new ReceivedMessageResponse
@@ -262,7 +263,7 @@ public class MessageService : IMessageService
         // پایه
         var q = _context.Messages.AsNoTracking()
             .Where(m => (m.SenderId == me && m.ReceiverId == other) || (m.SenderId == other && m.ReceiverId == me));
-
+        q = q.Where(m => !m.IsDeleted);
         // فیلتر «حذف برای من»
         var hiddenIds = _context.MessageHides
             .Where(h => h.UserId == me)
