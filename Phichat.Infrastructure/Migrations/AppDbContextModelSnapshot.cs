@@ -38,6 +38,9 @@ namespace Phichat.Infrastructure.Migrations
                     b.Property<string>("FileUrl")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("IsRead")
                         .HasColumnType("bit");
 
@@ -54,6 +57,9 @@ namespace Phichat.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("SentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
@@ -116,6 +122,22 @@ namespace Phichat.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Contacts");
+                });
+
+            modelBuilder.Entity("Phichat.Domain.Entities.MessageHide", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("UserId", "MessageId");
+
+                    b.ToTable("MessageHides");
                 });
 
             modelBuilder.Entity("Phichat.Domain.Entities.PhoneVerification", b =>
