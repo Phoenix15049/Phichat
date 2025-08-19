@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Phichat.API.Hubs;
 using Phichat.Application.DTOs.Message;
 using Phichat.Application.Interfaces;
 using Phichat.Infrastructure.Data;
@@ -18,13 +20,14 @@ public class MessagesController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IMessageService _messageService;
+    private readonly IHubContext<ChatHub> _hub;
 
-    
 
-    public MessagesController(AppDbContext context, IMessageService messageService)
+    public MessagesController(AppDbContext context, IMessageService messageService, IHubContext<ChatHub> hub)
     {
         _context = context;
         _messageService = messageService;
+        _hub = hub;
     }
 
     [HttpPost]
@@ -117,6 +120,73 @@ public class MessagesController : ControllerBase
 
         var result = await _messageService.GetConversationPageAsync(me, userId, anchor, pageSize);
         return Ok(result);
+    }
+
+
+    [Authorize]
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Edit(Guid id, [FromBody] EditMessageRequest dto)
+    {
+        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var res = await _messageService.EditMessageAsync(me, id, dto.EncryptedText);
+
+        var peers = await _messageService.GetPeerIdsForMessageAsync(id);
+        if (peers != null)
+        {
+            var userIds = new List<string>
+        {
+            peers.Value.SenderId.ToString(),
+            peers.Value.ReceiverId.ToString()
+        };
+
+            await _hub.Clients.Users(userIds).SendAsync("MessageEdited", new
+            {
+                messageId = id,
+                encryptedContent = res.EncryptedContent,
+                updatedAtUtc = res.UpdatedAtUtc
+            });
+        }
+
+        return Ok(res);
+    }
+
+
+
+    [Authorize]
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, [FromQuery] string scope = "me")
+    {
+        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+        var peers = await _messageService.GetPeerIdsForMessageAsync(id);
+
+        await _messageService.DeleteMessageAsync(me, id, scope);
+
+        if (scope == "all" && peers != null)
+        {
+            var userIds = new List<string>
+        {
+            peers.Value.SenderId.ToString(),
+            peers.Value.ReceiverId.ToString()
+        };
+
+            await _hub.Clients.Users(userIds).SendAsync("MessageDeleted", new
+            {
+                messageId = id,
+                scope = "all"
+            });
+        }
+        else
+        {
+            await _hub.Clients.User(me.ToString()).SendAsync("MessageDeleted", new
+            {
+                messageId = id,
+                scope = "me"
+            });
+        }
+
+        return NoContent();
     }
 
 

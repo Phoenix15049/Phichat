@@ -16,7 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<ChatKey> ChatKeys { get; set; }
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<PhoneVerification> PhoneVerifications => Set<PhoneVerification>();
-
+    public DbSet<MessageHide> MessageHides => Set<MessageHide>();
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -98,6 +98,7 @@ public class AppDbContext : DbContext
             .HasForeignKey(m => m.ReplyToMessageId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        modelBuilder.Entity<MessageHide>().HasKey(x => new { x.UserId, x.MessageId });
 
     }
 }

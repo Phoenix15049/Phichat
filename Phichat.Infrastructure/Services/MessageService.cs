@@ -43,24 +43,34 @@ public class MessageService : IMessageService
 
     public async Task<List<ReceivedMessageResponse>> GetConversationAsync(Guid currentUserId, Guid otherUserId)
     {
+        var hiddenIds = _context.MessageHides
+            .Where(h => h.UserId == currentUserId)
+            .Select(h => h.MessageId);
+
         return await _context.Messages
             .Where(m =>
-                (m.SenderId == currentUserId && m.ReceiverId == otherUserId) ||
-                (m.SenderId == otherUserId && m.ReceiverId == currentUserId)
-            )
+                ((m.SenderId == currentUserId && m.ReceiverId == otherUserId) ||
+                 (m.SenderId == otherUserId && m.ReceiverId == currentUserId)) &&
+                !hiddenIds.Contains(m.Id))
             .OrderBy(m => m.SentAt)
             .Select(m => new ReceivedMessageResponse
             {
                 MessageId = m.Id,
                 SenderId = m.SenderId,
+                ReceiverId = m.ReceiverId,       // NEW
                 EncryptedContent = m.EncryptedContent,
                 SentAt = m.SentAt,
                 FileUrl = m.FileUrl,
                 IsRead = m.IsRead,
-                ReplyToMessageId = m.ReplyToMessageId
+                DeliveredAtUtc = m.DeliveredAtUtc,
+                ReadAtUtc = m.ReadAtUtc,
+                ReplyToMessageId = m.ReplyToMessageId,
+                IsDeleted = m.IsDeleted,         // NEW
+                UpdatedAtUtc = m.UpdatedAtUtc    // NEW
             })
             .ToListAsync();
     }
+
 
 
     public async Task SendMessageWithFileAsync(Guid senderId, SendMessageWithFileRequest request, string uploadRootPath)
@@ -181,7 +191,9 @@ public class MessageService : IMessageService
                 EncryptedContent = m.EncryptedContent,
                 SentAt = m.SentAt,
                 FileUrl = m.FileUrl,
-                ReplyToMessageId = m.ReplyToMessageId
+                ReplyToMessageId = m.ReplyToMessageId,
+                IsDeleted = m.IsDeleted,
+                UpdatedAtUtc = m.UpdatedAtUtc,
             }).ToListAsync();
     }
 
@@ -247,13 +259,19 @@ public class MessageService : IMessageService
             if (anchor != null) beforeSentAt = anchor.SentAt;
         }
 
+        // پایه
         var q = _context.Messages.AsNoTracking()
             .Where(m => (m.SenderId == me && m.ReceiverId == other) || (m.SenderId == other && m.ReceiverId == me));
+
+        // فیلتر «حذف برای من»
+        var hiddenIds = _context.MessageHides
+            .Where(h => h.UserId == me)
+            .Select(h => h.MessageId);
+        q = q.Where(m => !hiddenIds.Contains(m.Id));
 
         if (beforeSentAt.HasValue)
             q = q.Where(m => m.SentAt < beforeSentAt.Value);
 
-        // pageSize+1 برای تشخیص HasMore
         var rows = await q
             .OrderByDescending(m => m.SentAt)
             .ThenByDescending(m => m.Id)
@@ -262,22 +280,22 @@ public class MessageService : IMessageService
 
         var hasMore = rows.Count > pageSize;
         if (hasMore) rows.RemoveAt(rows.Count - 1); // oldest extra
-
-        // به ترتیب صعودی برای UI
         rows.Reverse();
 
         var items = rows.Select(m => new ReceivedMessageResponse
         {
             MessageId = m.Id,
             SenderId = m.SenderId,
+            ReceiverId = m.ReceiverId,         // NEW
             EncryptedContent = m.EncryptedContent,
             SentAt = m.SentAt,
             FileUrl = m.FileUrl,
             IsRead = m.IsRead,
             DeliveredAtUtc = m.DeliveredAtUtc,
             ReadAtUtc = m.ReadAtUtc,
-            ReplyToMessageId = m.ReplyToMessageId
-
+            ReplyToMessageId = m.ReplyToMessageId,
+            IsDeleted = m.IsDeleted,           // NEW
+            UpdatedAtUtc = m.UpdatedAtUtc      // NEW
         }).ToList();
 
         return new PagedMessagesResponse
@@ -286,6 +304,82 @@ public class MessageService : IMessageService
             HasMore = hasMore,
             OldestId = items.FirstOrDefault()?.MessageId.ToString()
         };
+    }
+
+
+
+
+
+    public async Task<ReceivedMessageResponse> EditMessageAsync(Guid userId, Guid messageId, string encryptedText)
+    {
+        var m = await _context.Messages.FirstOrDefaultAsync(x => x.Id == messageId);
+        if (m == null) throw new Exception("Message not found.");
+        if (m.SenderId != userId) throw new Exception("Not allowed.");
+
+        m.EncryptedContent = encryptedText ?? "";
+        m.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        return new ReceivedMessageResponse
+        {
+            MessageId = m.Id,
+            SenderId = m.SenderId,
+            EncryptedContent = m.EncryptedContent,
+            FileUrl = m.FileUrl,
+            SentAt = m.SentAt,
+            DeliveredAtUtc = m.DeliveredAtUtc,
+            ReadAtUtc = m.ReadAtUtc,
+            IsRead = m.IsRead,
+            IsDeleted = m.IsDeleted,
+            UpdatedAtUtc = m.UpdatedAtUtc
+        };
+    }
+
+
+
+    public async Task DeleteMessageAsync(Guid userId, Guid messageId, string scope)
+    {
+        var m = await _context.Messages.FirstOrDefaultAsync(x => x.Id == messageId);
+        if (m == null) return;
+
+        if (scope == "all")
+        {
+            if (m.SenderId != userId) throw new Exception("Not allowed.");
+            m.IsDeleted = true;
+            m.EncryptedContent = "";
+            m.FileUrl = null;
+            m.UpdatedAtUtc = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+        }
+        else // "me"
+        {
+            var hide = await _context.MessageHides.FindAsync(userId, messageId);
+            if (hide == null)
+            {
+                _context.MessageHides.Add(new MessageHide
+                {
+                    UserId = userId,
+                    MessageId = messageId,
+                    CreatedAt = DateTime.UtcNow
+                });
+                await _context.SaveChangesAsync();
+            }
+        }
+    }
+
+
+
+    public async Task<(Guid SenderId, Guid ReceiverId)?> GetPeerIdsForMessageAsync(Guid messageId)
+    {
+        var m = await _context.Messages
+            .AsNoTracking()
+            .Where(x => x.Id == messageId)
+            .Select(x => new { x.SenderId, x.ReceiverId })
+            .FirstOrDefaultAsync();
+
+        if (m == null) return null;
+        return (m.SenderId, m.ReceiverId);
     }
 
 

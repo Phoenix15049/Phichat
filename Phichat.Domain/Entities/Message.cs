@@ -22,4 +22,8 @@ public class Message
     public Guid? ReplyToMessageId { get; set; }
     public Message? ReplyToMessage { get; set; }
 
+    public DateTime? UpdatedAtUtc { get; set; }
+    public bool IsDeleted { get; set; }
+
+
 }
