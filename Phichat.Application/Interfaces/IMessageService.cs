@@ -14,6 +14,7 @@ public interface IMessageService
     Task<ReceivedMessageResponse> EditMessageAsync(Guid userId, Guid messageId, string encryptedText);
     Task DeleteMessageAsync(Guid userId, Guid messageId, string scope);
     Task<(Guid SenderId, Guid ReceiverId)?> GetPeerIdsForMessageAsync(Guid messageId);
-
+    Task AddReactionAsync(Guid userId, Guid messageId, string emoji);
+    Task RemoveReactionAsync(Guid userId, Guid messageId, string emoji);
 
 }

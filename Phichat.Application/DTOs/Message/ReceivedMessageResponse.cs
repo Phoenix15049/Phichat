@@ -15,6 +15,6 @@ public class ReceivedMessageResponse
 
     public bool IsDeleted { get; set; }
     public DateTime? UpdatedAtUtc { get; set; }
-
+    public List<ReactionSummaryDto> Reactions { get; set; } = new();
 
 }

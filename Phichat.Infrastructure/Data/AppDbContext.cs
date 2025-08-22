@@ -17,7 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<PhoneVerification> PhoneVerifications => Set<PhoneVerification>();
     public DbSet<MessageHide> MessageHides => Set<MessageHide>();
-
+    public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -97,6 +97,10 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(m => m.ReplyToMessageId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<MessageReaction>()
+        .HasKey(x => new { x.MessageId, x.UserId, x.Emoji });
+
 
         modelBuilder.Entity<MessageHide>().HasKey(x => new { x.UserId, x.MessageId });
 

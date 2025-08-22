@@ -189,6 +189,61 @@ public class MessagesController : ControllerBase
         return NoContent();
     }
 
+    public class ToggleReactionRequest { public string Emoji { get; set; } = ""; }
+
+    [Authorize]
+    [HttpPost("{id:guid}/reactions")]
+    public async Task<IActionResult> AddReaction(Guid id, [FromBody] ToggleReactionRequest req)
+    {
+        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        await _messageService.AddReactionAsync(me, id, req.Emoji);
+
+        var peers = await _messageService.GetPeerIdsForMessageAsync(id);
+        if (peers != null)
+        {
+            var userIds = new List<string> { peers.Value.SenderId.ToString(), peers.Value.ReceiverId.ToString() };
+
+            // شمارش جدید این ایموجی
+            var count = await _context.MessageReactions
+                .CountAsync(r => r.MessageId == id && r.Emoji == req.Emoji);
+
+            await _hub.Clients.Users(userIds).SendAsync("ReactionUpdated", new
+            {
+                messageId = id,
+                emoji = req.Emoji,
+                count,
+                userId = me,
+                action = "added"
+            });
+        }
+        return NoContent();
+    }
+
+    [Authorize]
+    [HttpDelete("{id:guid}/reactions")]
+    public async Task<IActionResult> RemoveReaction(Guid id, [FromQuery] string emoji)
+    {
+        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        await _messageService.RemoveReactionAsync(me, id, emoji);
+
+        var peers = await _messageService.GetPeerIdsForMessageAsync(id);
+        if (peers != null)
+        {
+            var userIds = new List<string> { peers.Value.SenderId.ToString(), peers.Value.ReceiverId.ToString() };
+            var count = await _context.MessageReactions
+                .CountAsync(r => r.MessageId == id && r.Emoji == emoji);
+
+            await _hub.Clients.Users(userIds).SendAsync("ReactionUpdated", new
+            {
+                messageId = id,
+                emoji,
+                count,
+                userId = me,
+                action = "removed"
+            });
+        }
+        return NoContent();
+    }
 
 
 
