@@ -43,34 +43,70 @@ public class MessageService : IMessageService
 
     public async Task<List<ReceivedMessageResponse>> GetConversationAsync(Guid currentUserId, Guid otherUserId)
     {
+        // پیام‌های «حذف برای من» را حذف کن
         var hiddenIds = _context.MessageHides
             .Where(h => h.UserId == currentUserId)
             .Select(h => h.MessageId);
 
-        return await _context.Messages
+        // بدنه‌ی گفتگو (بدون IsDeleted و بدون مخفی‌ها)
+        var rows = await _context.Messages.AsNoTracking()
             .Where(m =>
                 ((m.SenderId == currentUserId && m.ReceiverId == otherUserId) ||
                  (m.SenderId == otherUserId && m.ReceiverId == currentUserId)) &&
-                 !m.IsDeleted &&
+                !m.IsDeleted &&
                 !hiddenIds.Contains(m.Id))
             .OrderBy(m => m.SentAt)
-            .Select(m => new ReceivedMessageResponse
-            {
-                MessageId = m.Id,
-                SenderId = m.SenderId,
-                ReceiverId = m.ReceiverId,       // NEW
-                EncryptedContent = m.EncryptedContent,
-                SentAt = m.SentAt,
-                FileUrl = m.FileUrl,
-                IsRead = m.IsRead,
-                DeliveredAtUtc = m.DeliveredAtUtc,
-                ReadAtUtc = m.ReadAtUtc,
-                ReplyToMessageId = m.ReplyToMessageId,
-                IsDeleted = m.IsDeleted,         // NEW
-                UpdatedAtUtc = m.UpdatedAtUtc    // NEW
-            })
             .ToListAsync();
+
+        if (rows.Count == 0)
+            return new List<ReceivedMessageResponse>();
+
+        // واکنش‌ها: شمارش کلی + واکنش‌های خود کاربر
+        var msgIds = rows.Select(m => m.Id).ToList();
+
+        var grouped = await _context.MessageReactions
+            .Where(r => msgIds.Contains(r.MessageId))
+            .GroupBy(r => new { r.MessageId, r.Emoji })
+            .Select(g => new { g.Key.MessageId, g.Key.Emoji, Count = g.Count() })
+            .ToListAsync();
+
+        var myReacts = await _context.MessageReactions
+            .Where(r => msgIds.Contains(r.MessageId) && r.UserId == currentUserId)
+            .ToListAsync();
+
+        var byMsg = grouped
+            .GroupBy(x => x.MessageId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => new ReactionSummaryDto
+                {
+                    Emoji = x.Emoji,
+                    Count = x.Count,
+                    Mine = myReacts.Any(mr => mr.MessageId == x.MessageId && mr.Emoji == x.Emoji)
+                }).ToList()
+            );
+
+        // مپ به DTO نهایی
+        var items = rows.Select(m => new ReceivedMessageResponse
+        {
+            MessageId = m.Id,
+            SenderId = m.SenderId,
+            ReceiverId = m.ReceiverId,
+            EncryptedContent = m.EncryptedContent,
+            SentAt = m.SentAt,
+            FileUrl = m.FileUrl,
+            IsRead = m.IsRead,
+            DeliveredAtUtc = m.DeliveredAtUtc,
+            ReadAtUtc = m.ReadAtUtc,
+            ReplyToMessageId = m.ReplyToMessageId,
+            IsDeleted = m.IsDeleted,
+            UpdatedAtUtc = m.UpdatedAtUtc,
+            Reactions = byMsg.ContainsKey(m.Id) ? byMsg[m.Id] : new List<ReactionSummaryDto>()
+        }).ToList();
+
+        return items;
     }
+
 
 
 
@@ -201,7 +237,6 @@ public class MessageService : IMessageService
 
     public async Task<List<ConversationDto>> GetConversationsAsync(Guid currentUserId)
     {
-        // Base query for user's messages
         var baseQuery = _context.Messages
             .Where(m => m.SenderId == currentUserId || m.ReceiverId == currentUserId)
             .Select(m => new
@@ -209,8 +244,6 @@ public class MessageService : IMessageService
                 PeerId = m.SenderId == currentUserId ? m.ReceiverId : m.SenderId,
                 Msg = m
             });
-
-        // Group by peer and compute last message + unread count
         var grouped = await baseQuery
             .GroupBy(x => x.PeerId)
             .Select(g => new
@@ -249,7 +282,6 @@ public class MessageService : IMessageService
         return result;
     }
 
-
     public async Task<PagedMessagesResponse> GetConversationPageAsync(Guid me, Guid other, Guid? beforeId, int pageSize)
     {
         DateTime? beforeSentAt = null;
@@ -260,11 +292,9 @@ public class MessageService : IMessageService
             if (anchor != null) beforeSentAt = anchor.SentAt;
         }
 
-        // پایه
         var q = _context.Messages.AsNoTracking()
             .Where(m => (m.SenderId == me && m.ReceiverId == other) || (m.SenderId == other && m.ReceiverId == me));
         q = q.Where(m => !m.IsDeleted);
-        // فیلتر «حذف برای من»
         var hiddenIds = _context.MessageHides
             .Where(h => h.UserId == me)
             .Select(h => h.MessageId);
@@ -280,14 +310,36 @@ public class MessageService : IMessageService
             .ToListAsync();
 
         var hasMore = rows.Count > pageSize;
-        if (hasMore) rows.RemoveAt(rows.Count - 1); // oldest extra
+        if (hasMore) rows.RemoveAt(rows.Count - 1);
         rows.Reverse();
+
+        var msgIds = rows.Select(m => m.Id).ToList();
+
+        var grouped = await _context.MessageReactions
+            .Where(r => msgIds.Contains(r.MessageId))
+            .GroupBy(r => new { r.MessageId, r.Emoji })
+            .Select(g => new { g.Key.MessageId, g.Key.Emoji, Count = g.Count() })
+            .ToListAsync();
+
+        var myReacts = await _context.MessageReactions
+            .Where(r => msgIds.Contains(r.MessageId) && r.UserId == me /* یا currentUserId */)
+            .ToListAsync();
+
+        var byMsg = grouped.GroupBy(x => x.MessageId).ToDictionary(
+            g => g.Key,
+            g => g.Select(x => new ReactionSummaryDto
+            {
+                Emoji = x.Emoji,
+                Count = x.Count,
+                Mine = myReacts.Any(mr => mr.MessageId == x.MessageId && mr.Emoji == x.Emoji)
+            }).ToList()
+        );
 
         var items = rows.Select(m => new ReceivedMessageResponse
         {
             MessageId = m.Id,
             SenderId = m.SenderId,
-            ReceiverId = m.ReceiverId,         // NEW
+            ReceiverId = m.ReceiverId,    
             EncryptedContent = m.EncryptedContent,
             SentAt = m.SentAt,
             FileUrl = m.FileUrl,
@@ -295,8 +347,9 @@ public class MessageService : IMessageService
             DeliveredAtUtc = m.DeliveredAtUtc,
             ReadAtUtc = m.ReadAtUtc,
             ReplyToMessageId = m.ReplyToMessageId,
-            IsDeleted = m.IsDeleted,           // NEW
-            UpdatedAtUtc = m.UpdatedAtUtc      // NEW
+            IsDeleted = m.IsDeleted,    
+            UpdatedAtUtc = m.UpdatedAtUtc,
+            Reactions = byMsg.ContainsKey(m.Id) ? byMsg[m.Id] : new List<ReactionSummaryDto>()
         }).ToList();
 
         return new PagedMessagesResponse
@@ -350,6 +403,7 @@ public class MessageService : IMessageService
             m.IsDeleted = true;
             m.EncryptedContent = "";
             m.FileUrl = null;
+            m.IsRead = true; // Mark as read when deleted
             m.UpdatedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync();
         }
@@ -382,6 +436,35 @@ public class MessageService : IMessageService
         if (m == null) return null;
         return (m.SenderId, m.ReceiverId);
     }
+
+
+    public async Task AddReactionAsync(Guid userId, Guid messageId, string emoji)
+    {
+        emoji = emoji?.Trim() ?? "";
+        if (string.IsNullOrEmpty(emoji)) return;
+
+        var exists = await _context.MessageReactions.FindAsync(messageId, userId, emoji);
+        if (exists != null) return;
+
+        _context.MessageReactions.Add(new MessageReaction
+        {
+            MessageId = messageId,
+            UserId = userId,
+            Emoji = emoji,
+            CreatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task RemoveReactionAsync(Guid userId, Guid messageId, string emoji)
+    {
+        var r = await _context.MessageReactions.FindAsync(messageId, userId, emoji);
+        if (r == null) return;
+        _context.MessageReactions.Remove(r);
+        await _context.SaveChangesAsync();
+    }
+
+
 
 
 }

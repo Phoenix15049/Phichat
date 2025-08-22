@@ -75,6 +75,25 @@ namespace Phichat.Infrastructure.Migrations
                     b.ToTable("Messages");
                 });
 
+            modelBuilder.Entity("MessageReaction", b =>
+                {
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Emoji")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("MessageId", "UserId", "Emoji");
+
+                    b.ToTable("MessageReactions");
+                });
+
             modelBuilder.Entity("Phichat.Domain.Entities.ChatKey", b =>
                 {
                     b.Property<Guid>("Id")
