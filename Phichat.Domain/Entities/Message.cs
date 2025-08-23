@@ -25,5 +25,9 @@ public class Message
     public DateTime? UpdatedAtUtc { get; set; }
     public bool IsDeleted { get; set; }
 
+    public Guid? ForwardedFromMessageId { get; set; }
+    public Guid? ForwardedFromSenderId { get; set; }
+
+
 
 }

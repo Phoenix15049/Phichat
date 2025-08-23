@@ -6,5 +6,7 @@ public class SendMessageWithFileRequest
     public string EncryptedText { get; set; } = string.Empty;
     public IFormFile File { get; set; } = default!;
     public Guid? ReplyToMessageId { get; set; }
+    public Guid? ForwardedFromMessageId { get; set; }
+
 
 }

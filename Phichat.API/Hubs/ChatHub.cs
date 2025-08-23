@@ -21,7 +21,6 @@ public class ChatHub : Hub
         _logger = logger;
     }
 
-
     public class SimpleMessageDto
     {
         public Guid ReceiverId { get; set; }
@@ -29,7 +28,9 @@ public class ChatHub : Hub
         public string? FileUrl { get; set; }
         public string? ClientId { get; set; }
         public Guid? ReplyToMessageId { get; set; }
+        public Guid? ForwardedFromMessageId { get; set; }  // NEW
     }
+
 
     public override async Task OnConnectedAsync()
     {
@@ -81,7 +82,8 @@ public class ChatHub : Hub
             ReceiverId = dto.ReceiverId,
             EncryptedText = dto.EncryptedText,
             FileUrl = dto.FileUrl,
-            ReplyToMessageId = dto.ReplyToMessageId
+            ReplyToMessageId = dto.ReplyToMessageId,
+            ForwardedFromMessageId = dto.ForwardedFromMessageId
 
         };
 
@@ -100,7 +102,9 @@ public class ChatHub : Hub
                 EncryptedText = dto.EncryptedText,
                 FileUrl = dto.FileUrl,
                 SentAt = latest?.SentAt ?? DateTime.UtcNow,
-                ReplyToMessageId = dto.ReplyToMessageId
+                ReplyToMessageId = dto.ReplyToMessageId,
+                ForwardedFromMessageId = latest?.ForwardedFromMessageId,
+                ForwardedFromSenderId = latest?.ForwardedFromSenderId
             });
         }
 
@@ -112,7 +116,9 @@ public class ChatHub : Hub
                 ReceiverId = dto.ReceiverId,
                 ClientId = dto.ClientId,            // <- echo back
                 SentAt = latest?.SentAt ?? DateTime.UtcNow,
-                deliveredAtUtc = latest?.DeliveredAtUtc
+                deliveredAtUtc = latest?.DeliveredAtUtc,
+                ForwardedFromMessageId = latest?.ForwardedFromMessageId,   // NEW
+                ForwardedFromSenderId = latest?.ForwardedFromSenderId
             });
         }
     }
@@ -141,8 +147,9 @@ public class ChatHub : Hub
                 EncryptedText = request.EncryptedText,
                 FileUrl = latest?.FileUrl,
                 SentAt = latest?.SentAt ?? DateTime.UtcNow,
-                ReplyToMessageId = request.ReplyToMessageId
-
+                ReplyToMessageId = request.ReplyToMessageId,
+                ForwardedFromMessageId = latest?.ForwardedFromMessageId,
+                ForwardedFromSenderId = latest?.ForwardedFromSenderId
             });
         }
 
