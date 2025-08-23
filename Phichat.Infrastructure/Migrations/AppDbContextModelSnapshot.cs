@@ -38,6 +38,12 @@ namespace Phichat.Infrastructure.Migrations
                     b.Property<string>("FileUrl")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid?>("ForwardedFromMessageId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ForwardedFromSenderId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
 

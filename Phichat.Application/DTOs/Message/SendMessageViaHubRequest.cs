@@ -5,5 +5,7 @@
     public string? FileName { get; set; }
     public string? FileBase64 { get; set; }
     public Guid? ReplyToMessageId { get; set; }
+    public Guid? ForwardedFromMessageId { get; set; }
+
 
 }

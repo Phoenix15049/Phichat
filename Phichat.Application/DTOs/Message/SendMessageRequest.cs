@@ -6,5 +6,7 @@ public class SendMessageRequest
     public string EncryptedText { get; set; }
     public string? FileUrl { get; set; }
     public Guid? ReplyToMessageId { get; set; }
+    public Guid? ForwardedFromMessageId { get; set; }
+
 
 }

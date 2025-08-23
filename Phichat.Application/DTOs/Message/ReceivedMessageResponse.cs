@@ -17,4 +17,8 @@ public class ReceivedMessageResponse
     public DateTime? UpdatedAtUtc { get; set; }
     public List<ReactionSummaryDto> Reactions { get; set; } = new();
 
+    public Guid? ForwardedFromMessageId { get; set; }
+    public Guid? ForwardedFromSenderId { get; set; }
+
+
 }

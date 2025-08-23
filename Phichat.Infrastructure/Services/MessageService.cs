@@ -36,6 +36,21 @@ public class MessageService : IMessageService
 
         message.DeliveredAtUtc = DateTime.UtcNow;
 
+        if (request.ForwardedFromMessageId.HasValue)
+        {
+            var src = await _context.Messages
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == request.ForwardedFromMessageId.Value);
+
+            if (src != null)
+            {
+                message.ForwardedFromMessageId = src.Id;
+                message.ForwardedFromSenderId = src.SenderId;
+                // توجه: متن و فایل را کلاینت برای مقصد "رمزنگاری مجدد" می‌فرستد
+            }
+        }
+
+
 
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
@@ -101,7 +116,9 @@ public class MessageService : IMessageService
             ReplyToMessageId = m.ReplyToMessageId,
             IsDeleted = m.IsDeleted,
             UpdatedAtUtc = m.UpdatedAtUtc,
-            Reactions = byMsg.ContainsKey(m.Id) ? byMsg[m.Id] : new List<ReactionSummaryDto>()
+            Reactions = byMsg.ContainsKey(m.Id) ? byMsg[m.Id] : new List<ReactionSummaryDto>(),
+            ForwardedFromMessageId = m.ForwardedFromMessageId,
+            ForwardedFromSenderId = m.ForwardedFromSenderId
         }).ToList();
 
         return items;
@@ -145,6 +162,22 @@ public class MessageService : IMessageService
         };
 
         message.DeliveredAtUtc = DateTime.UtcNow;
+
+        if (request.ForwardedFromMessageId.HasValue)
+        {
+            var src = await _context.Messages
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == request.ForwardedFromMessageId.Value);
+
+            if (src != null)
+            {
+                message.ForwardedFromMessageId = src.Id;
+                message.ForwardedFromSenderId = src.SenderId;
+                // توجه: متن و فایل را کلاینت برای مقصد "رمزنگاری مجدد" می‌فرستد
+            }
+        }
+
+
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
     }
@@ -179,6 +212,22 @@ public class MessageService : IMessageService
         };
 
         message.DeliveredAtUtc = DateTime.UtcNow;
+
+        if (request.ForwardedFromMessageId.HasValue)
+        {
+            var src = await _context.Messages
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == request.ForwardedFromMessageId.Value);
+
+            if (src != null)
+            {
+                message.ForwardedFromMessageId = src.Id;
+                message.ForwardedFromSenderId = src.SenderId;
+                // توجه: متن و فایل را کلاینت برای مقصد "رمزنگاری مجدد" می‌فرستد
+            }
+        }
+
+
 
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
@@ -349,7 +398,9 @@ public class MessageService : IMessageService
             ReplyToMessageId = m.ReplyToMessageId,
             IsDeleted = m.IsDeleted,    
             UpdatedAtUtc = m.UpdatedAtUtc,
-            Reactions = byMsg.ContainsKey(m.Id) ? byMsg[m.Id] : new List<ReactionSummaryDto>()
+            Reactions = byMsg.ContainsKey(m.Id) ? byMsg[m.Id] : new List<ReactionSummaryDto>(),
+            ForwardedFromMessageId = m.ForwardedFromMessageId,
+            ForwardedFromSenderId = m.ForwardedFromSenderId
         }).ToList();
 
         return new PagedMessagesResponse
