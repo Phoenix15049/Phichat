@@ -108,4 +108,28 @@ public class UsersController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("check-username")]
+    public async Task<IActionResult> CheckUsername([FromQuery] string u)
+    {
+        if (string.IsNullOrWhiteSpace(u)) return BadRequest();
+        var exists = await _context.Users.AnyAsync(x => x.Username == u);
+        return Ok(new { available = !exists });
+    }
+
+    [Authorize]
+    [HttpPatch("display-name")]
+    public async Task<IActionResult> UpdateDisplayName([FromBody] string dto)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto))
+            return BadRequest("Invalid display name");
+
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var user = await _context.Users.FirstOrDefaultAsync(x => x.Id == userId);
+        if (user == null) return NotFound();
+
+        user.DisplayName = dto.Trim();
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
 }
