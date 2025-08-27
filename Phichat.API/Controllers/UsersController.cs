@@ -33,7 +33,8 @@ public class UsersController : ControllerBase
             {
                 Id = u.Id,
                 Username = u.Username,
-                LastSeenUtc = u.LastSeenUtc
+                LastSeenUtc = u.LastSeenUtc,
+                DisplayName = u.DisplayName
             })
             .ToListAsync();
 
@@ -46,7 +47,6 @@ public class UsersController : ControllerBase
     {
         var user = await _userService.GetUserByIdAsync(id);
         if (user == null) return NotFound();
-
         return Ok(user);
     }
 

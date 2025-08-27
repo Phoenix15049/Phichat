@@ -245,6 +245,27 @@ public class MessagesController : ControllerBase
         return NoContent();
     }
 
+    [Authorize]
+    [HttpGet("{id:guid}/brief")]
+    public async Task<IActionResult> GetBrief(Guid id)
+    {
+        var m = await _context.Messages
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id);
+        if (m == null) return NotFound();
+
+        return Ok(new
+        {
+            messageId = m.Id,
+            senderId = m.SenderId,
+            receiverId = m.ReceiverId,
+            encryptedContent = m.EncryptedContent,
+            fileUrl = m.FileUrl,
+            sentAt = m.SentAt,
+            replyToMessageId = m.ReplyToMessageId
+        });
+    }
+
 
 
 }

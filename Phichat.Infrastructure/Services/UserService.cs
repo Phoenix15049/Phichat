@@ -103,7 +103,9 @@ public class UserService : IUserService
         return new UserDto
         {
             Id = user.Id,
-            Username = user.Username
+            Username = user.Username,
+            DisplayName = user.DisplayName
+
         };
 
     }
