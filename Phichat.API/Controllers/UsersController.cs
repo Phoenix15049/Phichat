@@ -34,7 +34,8 @@ public class UsersController : ControllerBase
                 Id = u.Id,
                 Username = u.Username,
                 LastSeenUtc = u.LastSeenUtc,
-                DisplayName = u.DisplayName
+                DisplayName = u.DisplayName,
+                AvatarUrl = u.AvatarUrl
             })
             .ToListAsync();
 
@@ -62,7 +63,8 @@ public class UsersController : ControllerBase
                 DisplayName = x.DisplayName,
                 AvatarUrl = x.AvatarUrl,
                 Bio = x.Bio,
-                LastSeenUtc = x.LastSeenUtc
+                LastSeenUtc = x.LastSeenUtc,
+                PhoneNumber = x.PhoneNumber
             })
             .FirstOrDefaultAsync();
 
@@ -107,6 +109,44 @@ public class UsersController : ControllerBase
         await _context.SaveChangesAsync();
         return NoContent();
     }
+
+    [Authorize]
+[HttpPost("avatar")]
+[Consumes("multipart/form-data")]
+[RequestFormLimits(MultipartBodyLengthLimit = 10_000_000)]
+[RequestSizeLimit(10_000_000)]
+public async Task<IActionResult> UploadAvatar([FromForm] AvatarUploadRequest model)
+{
+    var file = model.File;
+    if (file == null || file.Length == 0)
+        return BadRequest("No file.");
+
+    var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
+    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+    if (!allowed.Contains(ext))
+        return BadRequest("Invalid file type.");
+
+    var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    // wwwroot/uploads/avatars/{userId}/yyyyMMddHHmmssfff.ext
+    var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+    var dir = Path.Combine(webRoot, "uploads", "avatars", userId.ToString());
+    Directory.CreateDirectory(dir);
+
+    var fileName = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}{ext}";
+    var fullPath = Path.Combine(dir, fileName);
+
+    using (var stream = new FileStream(fullPath, FileMode.Create))
+        await file.CopyToAsync(stream);
+
+    var relativeUrl = $"/uploads/avatars/{userId}/{fileName}";
+    return Ok(new { url = relativeUrl });
+}
+
+
+
+
+
 
     [HttpGet("check-username")]
     public async Task<IActionResult> CheckUsername([FromQuery] string u)

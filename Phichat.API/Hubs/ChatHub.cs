@@ -11,6 +11,7 @@ namespace Phichat.API.Hubs;
 public class ChatHub : Hub
 {
     private static readonly Dictionary<Guid, string> OnlineUsers = new();
+
     private readonly IMessageService _messageService;
     private readonly IUserService _userService; // NEW
     private readonly ILogger<ChatHub> _logger;
@@ -44,7 +45,11 @@ public class ChatHub : Hub
 
             await Clients.All.SendAsync("UserOnline", id.ToString(), now.ToString("o"));
             var snapshot = OnlineUsers.Keys.Select(g => g.ToString()).ToArray();
-            await Clients.Caller.SendAsync("OnlineSnapshot", snapshot);
+            await Clients.Caller.SendAsync(
+                "OnlineSnapshot",
+                OnlineUsers.Keys.Select(k => k.ToString()).ToArray()
+            );
+
 
             await Clients.All.SendAsync("UserLastSeen", id.ToString(), now.ToString("o"));
         }
@@ -214,6 +219,12 @@ public class ChatHub : Hub
                 At = DateTime.UtcNow.ToString("o")
             });
         }
+    }
+
+    public Task<string[]> GetOnlineUsers()
+    {
+        var arr = OnlineUsers.Keys.Select(x => x.ToString()).ToArray();
+        return Task.FromResult(arr);
     }
 
 }
