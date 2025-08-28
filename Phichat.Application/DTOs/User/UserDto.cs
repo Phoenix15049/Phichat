@@ -6,4 +6,5 @@ public class UserDto
     public string Username { get; set; } = default!;
     public DateTime? LastSeenUtc { get; set; }
     public string? DisplayName { get; set; }
+    public string? AvatarUrl { get; set; }
 }

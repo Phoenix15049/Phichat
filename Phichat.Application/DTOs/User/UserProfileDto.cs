@@ -8,4 +8,5 @@ public class UserProfileDto
     public string? AvatarUrl { get; set; }
     public string? Bio { get; set; }
     public DateTime LastSeenUtc { get; set; }
+    public string? PhoneNumber { get; set; }
 }
