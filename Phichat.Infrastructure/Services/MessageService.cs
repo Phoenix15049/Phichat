@@ -133,6 +133,7 @@ public class MessageService : IMessageService
         if (receiver == null)
             throw new Exception("Receiver not found.");
 
+
         string? encryptedText = null;
         encryptedText = request.EncryptedText;
         string savedPath = string.Empty;
