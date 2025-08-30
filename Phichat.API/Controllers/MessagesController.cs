@@ -51,6 +51,39 @@ public class MessagesController : ControllerBase
 
         await _messageService.SendMessageWithFileAsync(userId, request, uploadPath);
 
+        var saved = await _messageService.GetLastMessageBetweenAsync(userId, request.ReceiverId);
+
+        var clientId = HttpContext?.Request?.Form?["clientId"].FirstOrDefault();
+
+        if (saved != null)
+        {
+
+            await _hub.Clients.User(request.ReceiverId.ToString()).SendAsync("ReceiveMessage", new
+            {
+                clientId = clientId,
+                id = saved.Id,
+                senderId = saved.SenderId,
+                receiverId = saved.ReceiverId,
+                encryptedContent = saved.EncryptedContent,
+                fileUrl = saved.FileUrl,
+                sentAt = saved.SentAt,
+                replyToMessageId = saved.ReplyToMessageId,
+                forwardedFromMessageId = saved.ForwardedFromMessageId,
+                forwardedFromSenderId = saved.ForwardedFromSenderId
+            });
+
+            await _hub.Clients.User(userId.ToString()).SendAsync("Delivered", new
+            {
+                clientId = clientId,
+                messageId = saved.Id,
+                sentAt = saved.SentAt,
+                deliveredAtUtc = saved.DeliveredAtUtc ?? DateTime.UtcNow,
+                encryptedText = saved.EncryptedContent,        
+                fileUrl = saved.FileUrl
+            });
+        }
+
+
         return Ok();
     }
 
