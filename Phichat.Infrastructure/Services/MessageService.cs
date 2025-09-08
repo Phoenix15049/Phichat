@@ -174,7 +174,6 @@ public class MessageService : IMessageService
             {
                 message.ForwardedFromMessageId = src.Id;
                 message.ForwardedFromSenderId = src.SenderId;
-                // توجه: متن و فایل را کلاینت برای مقصد "رمزنگاری مجدد" می‌فرستد
             }
         }
 
