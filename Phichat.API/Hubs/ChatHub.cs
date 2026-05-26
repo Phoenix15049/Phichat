@@ -102,7 +102,7 @@ public class ChatHub : Hub
         {
             await Clients.Client(receiverConn).SendAsync("ReceiveMessage", new
             {
-                MessageId = latest?.Id,       // 👈 add message id
+                MessageId = latest?.Id,       // add message id
                 SenderId = senderId,
                 EncryptedText = dto.EncryptedText,
                 FileUrl = dto.FileUrl,
