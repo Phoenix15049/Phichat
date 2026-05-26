@@ -236,7 +236,6 @@ public class MessagesController : ControllerBase
         {
             var userIds = new List<string> { peers.Value.SenderId.ToString(), peers.Value.ReceiverId.ToString() };
 
-            // شمارش جدید این ایموجی
             var count = await _context.MessageReactions
                 .CountAsync(r => r.MessageId == id && r.Emoji == req.Emoji);
 

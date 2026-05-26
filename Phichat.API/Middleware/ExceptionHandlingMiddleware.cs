@@ -19,7 +19,7 @@ public class ExceptionHandlingMiddleware
     {
         try
         {
-            await _next(context); // اجازه می‌ده درخواست ادامه پیدا کنه
+            await _next(context);
         }
         catch (Exception ex)
         {
@@ -30,7 +30,7 @@ public class ExceptionHandlingMiddleware
 
             var response = new ChatHub
             {
-                Message = "خطای غیرمنتظره‌ای رخ داده است.",
+                Message = "Unhandled exception occurred.",
                 #if DEBUG
                     Detail = ex.Message
                 #endif

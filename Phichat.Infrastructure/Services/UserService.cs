@@ -117,7 +117,7 @@ public class UserService : IUserService
         if (user is null)
             throw new Exception("User not found");
 
-        user.PasswordHash = HashPassword(newPassword); // ← اضافه شده
+        user.PasswordHash = HashPassword(newPassword); // ← New Added
 
         await _context.SaveChangesAsync();
     }

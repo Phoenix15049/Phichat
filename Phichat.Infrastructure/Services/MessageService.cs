@@ -46,7 +46,7 @@ public class MessageService : IMessageService
             {
                 message.ForwardedFromMessageId = src.Id;
                 message.ForwardedFromSenderId = src.SenderId;
-                // توجه: متن و فایل را کلاینت برای مقصد "رمزنگاری مجدد" می‌فرستد
+                // The client sends the text and file for re-encryption.
             }
         }
 
@@ -58,12 +58,12 @@ public class MessageService : IMessageService
 
     public async Task<List<ReceivedMessageResponse>> GetConversationAsync(Guid currentUserId, Guid otherUserId)
     {
-        // پیام‌های «حذف برای من» را حذف کن
+        // Delete “Delete for me” messages.
         var hiddenIds = _context.MessageHides
             .Where(h => h.UserId == currentUserId)
             .Select(h => h.MessageId);
 
-        // بدنه‌ی گفتگو (بدون IsDeleted و بدون مخفی‌ها)
+        // Conversation body (excluding IsDeleted and hidden items)
         var rows = await _context.Messages.AsNoTracking()
             .Where(m =>
                 ((m.SenderId == currentUserId && m.ReceiverId == otherUserId) ||
@@ -76,7 +76,7 @@ public class MessageService : IMessageService
         if (rows.Count == 0)
             return new List<ReceivedMessageResponse>();
 
-        // واکنش‌ها: شمارش کلی + واکنش‌های خود کاربر
+        // Reactions: total count + the user’s own reactions
         var msgIds = rows.Select(m => m.Id).ToList();
 
         var grouped = await _context.MessageReactions
@@ -101,7 +101,7 @@ public class MessageService : IMessageService
                 }).ToList()
             );
 
-        // مپ به DTO نهایی
+        // Map to the final DTO
         var items = rows.Select(m => new ReceivedMessageResponse
         {
             MessageId = m.Id,
@@ -223,7 +223,7 @@ public class MessageService : IMessageService
             {
                 message.ForwardedFromMessageId = src.Id;
                 message.ForwardedFromSenderId = src.SenderId;
-                // توجه: متن و فایل را کلاینت برای مقصد "رمزنگاری مجدد" می‌فرستد
+                // The client sends the text and file for re-encryption.
             }
         }
 
