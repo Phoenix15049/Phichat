@@ -147,11 +147,7 @@ Swagger is available in development mode:
 
 ## Screenshots / Demo
 
-Add project visuals here:
-
-    ![API Swagger](./assets/swagger.png)
-
-    ![Message Flow](./assets/message-flow.gif)
+![Message Flow](./screenshots/demo.gif)
 
 Recommended additions:
 
