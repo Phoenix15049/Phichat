@@ -25,13 +25,6 @@ public class MessagesController : ControllerBase
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-    [HttpPost]
-    public async Task<IActionResult> SendMessage(SendMessageRequest request)
-    {
-        await _messageService.SendMessageAsync(CurrentUserId, request);
-        return Ok();
-    }
-
     [HttpPost("with-file")]
     [EnableRateLimiting(RateLimitPolicies.Upload)]
     [RequestSizeLimit(MaxFileBytes)]
@@ -68,20 +61,6 @@ public class MessagesController : ControllerBase
         });
 
         return Ok();
-    }
-
-    [HttpGet("with/{userId:guid}")]
-    public async Task<IActionResult> GetConversationWith(Guid userId)
-    {
-        var messages = await _messageService.GetConversationAsync(CurrentUserId, userId);
-        return Ok(messages);
-    }
-
-    [HttpGet]
-    public async Task<IActionResult> GetMyMessages()
-    {
-        var messages = await _messageService.GetReceivedMessagesAsync(CurrentUserId);
-        return Ok(messages);
     }
 
     [HttpGet("conversations")]

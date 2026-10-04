@@ -90,6 +90,8 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
 builder.Services.AddScoped<IChatKeyService, ChatKeyService>();
+builder.Services.AddScoped<IContactService, ContactService>();
+builder.Services.AddSingleton<PresenceTracker>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
