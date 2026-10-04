@@ -162,6 +162,20 @@ Hub (clients pass the access token as the `access_token` query parameter):
 
     /hubs/chat
 
+Events are addressed per user, so every open connection (several tabs,
+a reload, a reconnect) receives them. A user is online while at least one
+connection is open; online/offline and last-seen updates are sent only to
+related users (conversation partners and contacts).
+
+## Tests
+
+``` bash
+dotnet test
+```
+
+Unit tests live in `Phichat.Tests` (presence tracking, password hashing,
+upload file-name sanitizing and image signature checks).
+
 ## API Documentation
 
 Swagger is available in development mode:
@@ -184,7 +198,7 @@ Recommended additions:
 Possible improvements:
 
 -   More advanced encryption key lifecycle management (true end-to-end keys)
--   Automated testing
+-   Integration tests against a real database
 -   Production deployment configuration
 
 ## License

@@ -1,6 +1,28 @@
-@Phichat.API_HostAddress = http://localhost:5228
+# Manual requests for the PhiChat API (Visual Studio / Rider / VS Code REST Client).
+# Run the API with the "https" launch profile first.
 
-GET {{Phichat.API_HostAddress}}/weatherforecast/
-Accept: application/json
+@host = https://localhost:7146
+@token = <paste the "token" from the login response>
 
-###
+### Sign in (sets the refresh-token cookie)
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "your_username",
+  "password": "your_password"
+}
+
+### Renew the access token using the refresh-token cookie
+POST {{host}}/api/auth/refresh
+
+### Current user
+GET {{host}}/api/users/me
+Authorization: Bearer {{token}}
+
+### Conversations
+GET {{host}}/api/messages/conversations
+Authorization: Bearer {{token}}
+
+### Sign out (revokes the refresh token)
+POST {{host}}/api/auth/logout

@@ -1,8 +1,6 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Phichat.Application.DTOs.Contact;
-using Phichat.Infrastructure.Data;
+using Phichat.Application.Interfaces;
 using System.Security.Claims;
 
 [ApiController]
@@ -10,51 +8,32 @@ using System.Security.Claims;
 [Authorize]
 public class ContactsController : ControllerBase
 {
-    private readonly AppDbContext _db;
-    public ContactsController(AppDbContext db) { _db = db; }
+    private readonly IContactService _contacts;
+
+    public ContactsController(IContactService contacts)
+    {
+        _contacts = contacts;
+    }
+
+    private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     [HttpGet]
     public async Task<IActionResult> GetMyContacts()
     {
-        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-
-        var contacts = await _db.Contacts
-            .Where(c => c.OwnerId == me)
-            .Join(_db.Users, c => c.ContactId, u => u.Id, (c, u) => new ContactDto
-            {
-                ContactId = u.Id,
-                Username = u.Username,
-                DisplayName = u.DisplayName,
-                AvatarUrl = u.AvatarUrl
-            })
-            .OrderBy(x => x.DisplayName ?? x.Username)
-            .ToListAsync();
-
-        return Ok(contacts);
+        return Ok(await _contacts.GetContactsAsync(CurrentUserId));
     }
 
     [HttpPost("{contactId:guid}")]
     public async Task<IActionResult> AddContact(Guid contactId)
     {
-        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        if (me == contactId) return BadRequest("Cannot add yourself.");
-
-        var exists = await _db.Contacts.AnyAsync(x => x.OwnerId == me && x.ContactId == contactId);
-        if (exists) return NoContent();
-
-        _db.Contacts.Add(new Phichat.Domain.Entities.Contact { OwnerId = me, ContactId = contactId });
-        await _db.SaveChangesAsync();
+        await _contacts.AddContactAsync(CurrentUserId, contactId);
         return NoContent();
     }
 
     [HttpDelete("{contactId:guid}")]
     public async Task<IActionResult> RemoveContact(Guid contactId)
     {
-        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var row = await _db.Contacts.FirstOrDefaultAsync(x => x.OwnerId == me && x.ContactId == contactId);
-        if (row == null) return NotFound();
-        _db.Contacts.Remove(row);
-        await _db.SaveChangesAsync();
+        await _contacts.RemoveContactAsync(CurrentUserId, contactId);
         return NoContent();
     }
 }

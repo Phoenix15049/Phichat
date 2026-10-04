@@ -50,30 +50,6 @@ public class MessageService : IMessageService
         return message;
     }
 
-    public async Task<List<ReceivedMessageResponse>> GetConversationAsync(Guid currentUserId, Guid otherUserId)
-    {
-        // Delete “Delete for me” messages.
-        var hiddenIds = _context.MessageHides
-            .Where(h => h.UserId == currentUserId)
-            .Select(h => h.MessageId);
-
-        // Conversation body (excluding IsDeleted and hidden items)
-        var rows = await _context.Messages.AsNoTracking()
-            .Where(m =>
-                ((m.SenderId == currentUserId && m.ReceiverId == otherUserId) ||
-                 (m.SenderId == otherUserId && m.ReceiverId == currentUserId)) &&
-                !m.IsDeleted &&
-                !hiddenIds.Contains(m.Id))
-            .OrderBy(m => m.SentAt)
-            .ToListAsync();
-
-        if (rows.Count == 0)
-            return new List<ReceivedMessageResponse>();
-
-        var byMsg = await LoadReactionsAsync(rows.Select(m => m.Id).ToList(), currentUserId);
-        return rows.Select(m => ToResponse(m, byMsg)).ToList();
-    }
-
     public async Task<Message> SendMessageWithFileAsync(Guid senderId, SendMessageWithFileRequest request, string uploadRootPath)
     {
         await EnsureReceiverExistsAsync(request.ReceiverId);
@@ -125,6 +101,7 @@ public class MessageService : IMessageService
             return new MessageReadResult { Success = false };
 
         message.IsRead = true;
+        message.ReadAtUtc = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
         return new MessageReadResult
@@ -136,28 +113,16 @@ public class MessageService : IMessageService
         };
     }
 
-    public async Task<List<ReceivedMessageResponse>> GetReceivedMessagesAsync(Guid receiverId)
-    {
-        return await _context.Messages
-            .Where(m => m.ReceiverId == receiverId)
-            .OrderByDescending(m => m.SentAt)
-            .Select(m => new ReceivedMessageResponse
-            {
-                MessageId = m.Id,
-                SenderId = m.SenderId,
-                EncryptedContent = m.EncryptedContent,
-                SentAt = m.SentAt,
-                FileUrl = m.FileUrl,
-                ReplyToMessageId = m.ReplyToMessageId,
-                IsDeleted = m.IsDeleted,
-                UpdatedAtUtc = m.UpdatedAtUtc,
-            }).ToListAsync();
-    }
-
     public async Task<List<ConversationDto>> GetConversationsAsync(Guid currentUserId)
     {
+        // Only messages the user can still see: not deleted for everyone, not hidden ("delete for me").
+        var hiddenIds = _context.MessageHides
+            .Where(h => h.UserId == currentUserId)
+            .Select(h => h.MessageId);
+
         var baseQuery = _context.Messages
             .Where(m => m.SenderId == currentUserId || m.ReceiverId == currentUserId)
+            .Where(m => !m.IsDeleted && !hiddenIds.Contains(m.Id))
             .Select(m => new
             {
                 PeerId = m.SenderId == currentUserId ? m.ReceiverId : m.SenderId,

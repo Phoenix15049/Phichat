@@ -5,9 +5,7 @@ public interface IMessageService
     Task<Message> SendMessageAsync(Guid senderId, SendMessageRequest request);
     Task<Message> SendMessageWithFileAsync(Guid senderId, SendMessageWithFileRequest request, string uploadRootPath);
 
-    Task<List<ReceivedMessageResponse>> GetReceivedMessagesAsync(Guid receiverId);
     Task<MessageReadResult> MarkAsReadAsync(Guid messageId, Guid readerId);
-    Task<List<ReceivedMessageResponse>> GetConversationAsync(Guid currentUserId, Guid otherUserId);
     Task<List<ConversationDto>> GetConversationsAsync(Guid currentUserId);
     Task<PagedMessagesResponse> GetConversationPageAsync(Guid me, Guid other, Guid? beforeId, int pageSize);
 
