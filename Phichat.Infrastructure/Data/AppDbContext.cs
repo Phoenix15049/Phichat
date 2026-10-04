@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<PhoneVerification> PhoneVerifications => Set<PhoneVerification>();
     public DbSet<MessageHide> MessageHides => Set<MessageHide>();
     public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -103,6 +104,21 @@ public class AppDbContext : DbContext
 
 
         modelBuilder.Entity<MessageHide>().HasKey(x => new { x.UserId, x.MessageId });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.TokenHash).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.ReplacedByTokenHash).HasMaxLength(64);
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => x.FamilyId);
+            entity.HasIndex(x => new { x.UserId, x.ExpiresAtUtc });
+
+            entity.HasOne(x => x.User)
+                  .WithMany()
+                  .HasForeignKey(x => x.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
 
     }
 }

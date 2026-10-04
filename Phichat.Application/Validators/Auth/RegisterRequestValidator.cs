@@ -1,17 +1,12 @@
-﻿using FluentValidation;
+using FluentValidation;
 using Phichat.Application.DTOs.Auth;
+using Phichat.Application.Validators;
 
 public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
 {
     public RegisterRequestValidator()
     {
-        RuleFor(x => x.Username)
-            .NotEmpty().WithMessage("Username is required.")
-            .MinimumLength(3).MaximumLength(50);
-
-        RuleFor(x => x.Password)
-            .NotEmpty().WithMessage("Password is required.")
-            .MinimumLength(6);
-
+        RuleFor(x => x.Username).ValidUsername();
+        RuleFor(x => x.Password).ValidNewPassword();
     }
 }

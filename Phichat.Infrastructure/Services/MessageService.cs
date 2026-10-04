@@ -1,8 +1,10 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using Phichat.Application.Common.Exceptions;
 using Phichat.Application.DTOs.Message;
-using Phichat.Application.Interfaces;
+using Phichat.Application.Validators;
 using Phichat.Domain.Entities;
 using Phichat.Infrastructure.Data;
+using Phichat.Infrastructure.Files;
 
 public class MessageService : IMessageService
 {
@@ -11,15 +13,16 @@ public class MessageService : IMessageService
     public MessageService(AppDbContext context)
     {
         _context = context;
-
     }
 
-    public async Task SendMessageAsync(Guid senderId, SendMessageRequest request)
+    public async Task<Message> SendMessageAsync(Guid senderId, SendMessageRequest request)
     {
-        var receiver = await _context.Users.FirstOrDefaultAsync(x => x.Id == request.ReceiverId);
-        if (receiver == null)
-            throw new Exception("Receiver not found.");
+        // Hub calls bypass MVC model validation, so the body limits are enforced here too.
+        if (string.IsNullOrEmpty(request.EncryptedText) || request.EncryptedText.Length > ValidationRules.EncryptedTextMaxLength)
+            throw new BadRequestException("invalid_message", "Message is empty or too large.");
 
+        await EnsureReceiverExistsAsync(request.ReceiverId);
+        await EnsureReplyTargetAsync(senderId, request.ReceiverId, request.ReplyToMessageId);
 
         var message = new Message
         {
@@ -27,33 +30,24 @@ public class MessageService : IMessageService
             SenderId = senderId,
             ReceiverId = request.ReceiverId,
             EncryptedContent = request.EncryptedText,
-            FileUrl = request.FileUrl,
             SentAt = DateTime.UtcNow,
             ReplyToMessageId = request.ReplyToMessageId
-
-
         };
 
         message.DeliveredAtUtc = DateTime.UtcNow;
 
         if (request.ForwardedFromMessageId.HasValue)
         {
-            var src = await _context.Messages
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == request.ForwardedFromMessageId.Value);
-
-            if (src != null)
-            {
-                message.ForwardedFromMessageId = src.Id;
-                message.ForwardedFromSenderId = src.SenderId;
-                // The client sends the text and file for re-encryption.
-            }
+            // The client re-encrypts the text for the new chat; the attachment is copied server-side.
+            var source = await ResolveForwardSourceAsync(senderId, request.ForwardedFromMessageId.Value);
+            message.ForwardedFromMessageId = source.MessageId;
+            message.ForwardedFromSenderId = source.OriginalSenderId;
+            message.FileUrl = source.FileUrl;
         }
-
-
 
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
+        return message;
     }
 
     public async Task<List<ReceivedMessageResponse>> GetConversationAsync(Guid currentUserId, Guid otherUserId)
@@ -76,78 +70,25 @@ public class MessageService : IMessageService
         if (rows.Count == 0)
             return new List<ReceivedMessageResponse>();
 
-        // Reactions: total count + the user’s own reactions
-        var msgIds = rows.Select(m => m.Id).ToList();
-
-        var grouped = await _context.MessageReactions
-            .Where(r => msgIds.Contains(r.MessageId))
-            .GroupBy(r => new { r.MessageId, r.Emoji })
-            .Select(g => new { g.Key.MessageId, g.Key.Emoji, Count = g.Count() })
-            .ToListAsync();
-
-        var myReacts = await _context.MessageReactions
-            .Where(r => msgIds.Contains(r.MessageId) && r.UserId == currentUserId)
-            .ToListAsync();
-
-        var byMsg = grouped
-            .GroupBy(x => x.MessageId)
-            .ToDictionary(
-                g => g.Key,
-                g => g.Select(x => new ReactionSummaryDto
-                {
-                    Emoji = x.Emoji,
-                    Count = x.Count,
-                    Mine = myReacts.Any(mr => mr.MessageId == x.MessageId && mr.Emoji == x.Emoji)
-                }).ToList()
-            );
-
-        // Map to the final DTO
-        var items = rows.Select(m => new ReceivedMessageResponse
-        {
-            MessageId = m.Id,
-            SenderId = m.SenderId,
-            ReceiverId = m.ReceiverId,
-            EncryptedContent = m.EncryptedContent,
-            SentAt = m.SentAt,
-            FileUrl = m.FileUrl,
-            IsRead = m.IsRead,
-            DeliveredAtUtc = m.DeliveredAtUtc,
-            ReadAtUtc = m.ReadAtUtc,
-            ReplyToMessageId = m.ReplyToMessageId,
-            IsDeleted = m.IsDeleted,
-            UpdatedAtUtc = m.UpdatedAtUtc,
-            Reactions = byMsg.ContainsKey(m.Id) ? byMsg[m.Id] : new List<ReactionSummaryDto>(),
-            ForwardedFromMessageId = m.ForwardedFromMessageId,
-            ForwardedFromSenderId = m.ForwardedFromSenderId
-        }).ToList();
-
-        return items;
+        var byMsg = await LoadReactionsAsync(rows.Select(m => m.Id).ToList(), currentUserId);
+        return rows.Select(m => ToResponse(m, byMsg)).ToList();
     }
 
-
-
-
-    public async Task SendMessageWithFileAsync(Guid senderId, SendMessageWithFileRequest request, string uploadRootPath)
+    public async Task<Message> SendMessageWithFileAsync(Guid senderId, SendMessageWithFileRequest request, string uploadRootPath)
     {
-        var receiver = await _context.Users.FirstOrDefaultAsync(x => x.Id == request.ReceiverId);
-        if (receiver == null)
-            throw new Exception("Receiver not found.");
+        await EnsureReceiverExistsAsync(request.ReceiverId);
+        await EnsureReplyTargetAsync(senderId, request.ReceiverId, request.ReplyToMessageId);
 
+        if (request.File == null || request.File.Length == 0)
+            throw new BadRequestException("file_required", "File is required.");
 
-        string? encryptedText = null;
-        encryptedText = request.EncryptedText;
-        string savedPath = string.Empty;
-        if (request.File != null && request.File.Length > 0)
+        // Random prefix + sanitized name: the client name is kept for display but can never escape the folder.
+        var storedName = $"{Guid.NewGuid():N}_{FileNameSanitizer.Sanitize(request.File.FileName)}";
+        var fullPath = Path.Combine(uploadRootPath, storedName);
+
+        await using (var stream = new FileStream(fullPath, FileMode.CreateNew))
         {
-            var fileName = $"{Guid.NewGuid()}_{request.File.FileName}";
-            var fullPath = Path.Combine(uploadRootPath, fileName);
-
-            using (var stream = new FileStream(fullPath, FileMode.Create))
-            {
-                await request.File.CopyToAsync(stream);
-            }
-
-            savedPath = $"/uploads/{fileName}";
+            await request.File.CopyToAsync(stream);
         }
 
         var message = new Message
@@ -155,58 +96,8 @@ public class MessageService : IMessageService
             Id = Guid.NewGuid(),
             SenderId = senderId,
             ReceiverId = request.ReceiverId,
-            EncryptedContent = encryptedText ?? "",
-            FileUrl = savedPath,
-            SentAt = DateTime.UtcNow,
-            ReplyToMessageId = request.ReplyToMessageId
-
-        };
-
-        message.DeliveredAtUtc = DateTime.UtcNow;
-
-        if (request.ForwardedFromMessageId.HasValue)
-        {
-            var src = await _context.Messages
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == request.ForwardedFromMessageId.Value);
-
-            if (src != null)
-            {
-                message.ForwardedFromMessageId = src.Id;
-                message.ForwardedFromSenderId = src.SenderId;
-            }
-        }
-
-
-        _context.Messages.Add(message);
-        await _context.SaveChangesAsync();
-    }
-
-    public async Task SendMessageFromHubAsync(Guid senderId, SendMessageViaHubRequest request, string uploadRootPath)
-    {
-        var receiver = await _context.Users.FirstOrDefaultAsync(x => x.Id == request.ReceiverId);
-        if (receiver == null)
-            throw new Exception("Receiver not found");
-
-        string encryptedContent = request.EncryptedText;
-        string? fileUrl = null;
-
-        if (!string.IsNullOrEmpty(request.FileBase64) && !string.IsNullOrEmpty(request.FileName))
-        {
-            var bytes = Convert.FromBase64String(request.FileBase64);
-            var uniqueFileName = $"{Guid.NewGuid()}_{request.FileName}";
-            var fullPath = Path.Combine(uploadRootPath, uniqueFileName);
-            await File.WriteAllBytesAsync(fullPath, bytes);
-            fileUrl = $"/uploads/{uniqueFileName}";
-        }
-
-        var message = new Message
-        {
-            Id = Guid.NewGuid(),
-            SenderId = senderId,
-            ReceiverId = request.ReceiverId,
-            EncryptedContent = encryptedContent,
-            FileUrl = fileUrl,
+            EncryptedContent = request.EncryptedText ?? "",
+            FileUrl = "/uploads/" + Uri.EscapeDataString(storedName),
             SentAt = DateTime.UtcNow,
             ReplyToMessageId = request.ReplyToMessageId
         };
@@ -215,24 +106,15 @@ public class MessageService : IMessageService
 
         if (request.ForwardedFromMessageId.HasValue)
         {
-            var src = await _context.Messages
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == request.ForwardedFromMessageId.Value);
-
-            if (src != null)
-            {
-                message.ForwardedFromMessageId = src.Id;
-                message.ForwardedFromSenderId = src.SenderId;
-                // The client sends the text and file for re-encryption.
-            }
+            var source = await ResolveForwardSourceAsync(senderId, request.ForwardedFromMessageId.Value);
+            message.ForwardedFromMessageId = source.MessageId;
+            message.ForwardedFromSenderId = source.OriginalSenderId;
         }
-
-
 
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
+        return message;
     }
-
 
     public async Task<MessageReadResult> MarkAsReadAsync(Guid messageId, Guid readerId)
     {
@@ -249,21 +131,10 @@ public class MessageService : IMessageService
         {
             Success = true,
             SenderId = message.SenderId,
-            MessageId = message.Id,            
+            MessageId = message.Id,
             ReadAtUtc = message.ReadAtUtc
-
         };
     }
-
-
-    public async Task<Message?> GetLastMessageBetweenAsync(Guid senderId, Guid receiverId)
-    {
-        return await _context.Messages
-            .Where(m => m.SenderId == senderId && m.ReceiverId == receiverId)
-            .OrderByDescending(m => m.SentAt)
-            .FirstOrDefaultAsync();
-    }
-
 
     public async Task<List<ReceivedMessageResponse>> GetReceivedMessagesAsync(Guid receiverId)
     {
@@ -282,7 +153,6 @@ public class MessageService : IMessageService
                 UpdatedAtUtc = m.UpdatedAtUtc,
             }).ToListAsync();
     }
-
 
     public async Task<List<ConversationDto>> GetConversationsAsync(Guid currentUserId)
     {
@@ -333,6 +203,8 @@ public class MessageService : IMessageService
 
     public async Task<PagedMessagesResponse> GetConversationPageAsync(Guid me, Guid other, Guid? beforeId, int pageSize)
     {
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
         DateTime? beforeSentAt = null;
         if (beforeId.HasValue)
         {
@@ -362,46 +234,8 @@ public class MessageService : IMessageService
         if (hasMore) rows.RemoveAt(rows.Count - 1);
         rows.Reverse();
 
-        var msgIds = rows.Select(m => m.Id).ToList();
-
-        var grouped = await _context.MessageReactions
-            .Where(r => msgIds.Contains(r.MessageId))
-            .GroupBy(r => new { r.MessageId, r.Emoji })
-            .Select(g => new { g.Key.MessageId, g.Key.Emoji, Count = g.Count() })
-            .ToListAsync();
-
-        var myReacts = await _context.MessageReactions
-            .Where(r => msgIds.Contains(r.MessageId) && r.UserId == me /* یا currentUserId */)
-            .ToListAsync();
-
-        var byMsg = grouped.GroupBy(x => x.MessageId).ToDictionary(
-            g => g.Key,
-            g => g.Select(x => new ReactionSummaryDto
-            {
-                Emoji = x.Emoji,
-                Count = x.Count,
-                Mine = myReacts.Any(mr => mr.MessageId == x.MessageId && mr.Emoji == x.Emoji)
-            }).ToList()
-        );
-
-        var items = rows.Select(m => new ReceivedMessageResponse
-        {
-            MessageId = m.Id,
-            SenderId = m.SenderId,
-            ReceiverId = m.ReceiverId,    
-            EncryptedContent = m.EncryptedContent,
-            SentAt = m.SentAt,
-            FileUrl = m.FileUrl,
-            IsRead = m.IsRead,
-            DeliveredAtUtc = m.DeliveredAtUtc,
-            ReadAtUtc = m.ReadAtUtc,
-            ReplyToMessageId = m.ReplyToMessageId,
-            IsDeleted = m.IsDeleted,    
-            UpdatedAtUtc = m.UpdatedAtUtc,
-            Reactions = byMsg.ContainsKey(m.Id) ? byMsg[m.Id] : new List<ReactionSummaryDto>(),
-            ForwardedFromMessageId = m.ForwardedFromMessageId,
-            ForwardedFromSenderId = m.ForwardedFromSenderId
-        }).ToList();
+        var byMsg = await LoadReactionsAsync(rows.Select(m => m.Id).ToList(), me);
+        var items = rows.Select(m => ToResponse(m, byMsg)).ToList();
 
         return new PagedMessagesResponse
         {
@@ -411,15 +245,33 @@ public class MessageService : IMessageService
         };
     }
 
+    public async Task<MessageBriefDto> GetBriefAsync(Guid userId, Guid messageId)
+    {
+        var m = await _context.Messages
+            .AsNoTracking()
+            .Where(x => x.Id == messageId && (x.SenderId == userId || x.ReceiverId == userId))
+            .Where(x => !_context.MessageHides.Any(h => h.UserId == userId && h.MessageId == x.Id))
+            .Select(x => new MessageBriefDto
+            {
+                MessageId = x.Id,
+                SenderId = x.SenderId,
+                ReceiverId = x.ReceiverId,
+                EncryptedContent = x.EncryptedContent,
+                FileUrl = x.FileUrl,
+                SentAt = x.SentAt,
+                ReplyToMessageId = x.ReplyToMessageId
+            })
+            .FirstOrDefaultAsync();
 
-
-
+        return m ?? throw MessageNotFound();
+    }
 
     public async Task<ReceivedMessageResponse> EditMessageAsync(Guid userId, Guid messageId, string encryptedText)
     {
         var m = await _context.Messages.FirstOrDefaultAsync(x => x.Id == messageId);
-        if (m == null) throw new Exception("Message not found.");
-        if (m.SenderId != userId) throw new Exception("Not allowed.");
+        if (m == null || (m.SenderId != userId && m.ReceiverId != userId)) throw MessageNotFound();
+        if (m.SenderId != userId) throw new ForbiddenException("not_message_owner", "Only the sender can edit this message.");
+        if (m.IsDeleted) throw new BadRequestException("message_deleted", "A deleted message cannot be edited.");
 
         m.EncryptedContent = encryptedText ?? "";
         m.UpdatedAtUtc = DateTime.UtcNow;
@@ -441,16 +293,17 @@ public class MessageService : IMessageService
         };
     }
 
-
-
     public async Task DeleteMessageAsync(Guid userId, Guid messageId, string scope)
     {
+        if (scope != "me" && scope != "all")
+            throw new BadRequestException("invalid_scope", "Scope must be 'me' or 'all'.");
+
         var m = await _context.Messages.FirstOrDefaultAsync(x => x.Id == messageId);
-        if (m == null) return;
+        if (m == null || (m.SenderId != userId && m.ReceiverId != userId)) throw MessageNotFound();
 
         if (scope == "all")
         {
-            if (m.SenderId != userId) throw new Exception("Not allowed.");
+            if (m.SenderId != userId) throw new ForbiddenException("not_message_owner", "Only the sender can delete a message for everyone.");
             m.IsDeleted = true;
             m.EncryptedContent = "";
             m.FileUrl = null;
@@ -474,8 +327,6 @@ public class MessageService : IMessageService
         }
     }
 
-
-
     public async Task<(Guid SenderId, Guid ReceiverId)?> GetPeerIdsForMessageAsync(Guid messageId)
     {
         var m = await _context.Messages
@@ -488,34 +339,158 @@ public class MessageService : IMessageService
         return (m.SenderId, m.ReceiverId);
     }
 
-
-    public async Task AddReactionAsync(Guid userId, Guid messageId, string emoji)
+    public async Task<int> AddReactionAsync(Guid userId, Guid messageId, string emoji)
     {
         emoji = emoji?.Trim() ?? "";
-        if (string.IsNullOrEmpty(emoji)) return;
+        if (string.IsNullOrEmpty(emoji))
+            throw new BadRequestException("emoji_required", "Emoji is required.");
+
+        await EnsureCanReactAsync(userId, messageId);
 
         var exists = await _context.MessageReactions.FindAsync(messageId, userId, emoji);
-        if (exists != null) return;
-
-        _context.MessageReactions.Add(new MessageReaction
+        if (exists == null)
         {
-            MessageId = messageId,
-            UserId = userId,
-            Emoji = emoji,
-            CreatedAt = DateTime.UtcNow
-        });
-        await _context.SaveChangesAsync();
+            _context.MessageReactions.Add(new MessageReaction
+            {
+                MessageId = messageId,
+                UserId = userId,
+                Emoji = emoji,
+                CreatedAt = DateTime.UtcNow
+            });
+            await _context.SaveChangesAsync();
+        }
+
+        return await CountReactionsAsync(messageId, emoji);
     }
 
-    public async Task RemoveReactionAsync(Guid userId, Guid messageId, string emoji)
+    public async Task<int> RemoveReactionAsync(Guid userId, Guid messageId, string emoji)
     {
+        emoji = emoji?.Trim() ?? "";
+        await EnsureCanReactAsync(userId, messageId);
+
         var r = await _context.MessageReactions.FindAsync(messageId, userId, emoji);
-        if (r == null) return;
-        _context.MessageReactions.Remove(r);
-        await _context.SaveChangesAsync();
+        if (r != null)
+        {
+            _context.MessageReactions.Remove(r);
+            await _context.SaveChangesAsync();
+        }
+
+        return await CountReactionsAsync(messageId, emoji);
     }
 
+    // ---- helpers ----
 
+    private sealed record ForwardSource(Guid MessageId, Guid OriginalSenderId, string? FileUrl);
 
+    /// <summary>
+    /// The sender may forward a message they can see: one of their own conversation's messages,
+    /// or the original of a forward they received (forwarding a forward keeps pointing at the original).
+    /// </summary>
+    private async Task<ForwardSource> ResolveForwardSourceAsync(Guid userId, Guid sourceId)
+    {
+        var visible = await _context.Messages
+            .AsNoTracking()
+            .Where(m => (m.Id == sourceId || m.ForwardedFromMessageId == sourceId)
+                        && (m.SenderId == userId || m.ReceiverId == userId)
+                        && !m.IsDeleted)
+            .Where(m => !_context.MessageHides.Any(h => h.UserId == userId && h.MessageId == m.Id))
+            .OrderByDescending(m => m.Id == sourceId)
+            .Select(m => new { m.Id, m.SenderId, m.ForwardedFromSenderId, m.FileUrl })
+            .FirstOrDefaultAsync();
 
+        if (visible == null)
+            throw new NotFoundException("forward_source_not_found", "The message to forward was not found.");
+
+        var originalSender = visible.Id == sourceId
+            ? visible.SenderId
+            : visible.ForwardedFromSenderId ?? visible.SenderId;
+
+        return new ForwardSource(sourceId, originalSender, visible.FileUrl);
+    }
+
+    private async Task EnsureReceiverExistsAsync(Guid receiverId)
+    {
+        if (!await _context.Users.AnyAsync(x => x.Id == receiverId))
+            throw new NotFoundException("receiver_not_found", "Receiver not found.");
+    }
+
+    /// <summary>A reply must point at a message of the same conversation.</summary>
+    private async Task EnsureReplyTargetAsync(Guid senderId, Guid receiverId, Guid? replyToMessageId)
+    {
+        if (!replyToMessageId.HasValue) return;
+
+        var ok = await _context.Messages.AnyAsync(m =>
+            m.Id == replyToMessageId.Value &&
+            ((m.SenderId == senderId && m.ReceiverId == receiverId) ||
+             (m.SenderId == receiverId && m.ReceiverId == senderId)));
+
+        if (!ok)
+            throw new BadRequestException("invalid_reply", "The replied message does not belong to this conversation.");
+    }
+
+    private async Task EnsureCanReactAsync(Guid userId, Guid messageId)
+    {
+        var m = await _context.Messages
+            .AsNoTracking()
+            .Where(x => x.Id == messageId)
+            .Select(x => new { x.SenderId, x.ReceiverId, x.IsDeleted })
+            .FirstOrDefaultAsync();
+
+        if (m == null || (m.SenderId != userId && m.ReceiverId != userId) || m.IsDeleted)
+            throw MessageNotFound();
+    }
+
+    private Task<int> CountReactionsAsync(Guid messageId, string emoji) =>
+        _context.MessageReactions.CountAsync(r => r.MessageId == messageId && r.Emoji == emoji);
+
+    private async Task<Dictionary<Guid, List<ReactionSummaryDto>>> LoadReactionsAsync(List<Guid> msgIds, Guid currentUserId)
+    {
+        if (msgIds.Count == 0)
+            return new Dictionary<Guid, List<ReactionSummaryDto>>();
+
+        // Reactions: total count + the user's own reactions
+        var grouped = await _context.MessageReactions
+            .Where(r => msgIds.Contains(r.MessageId))
+            .GroupBy(r => new { r.MessageId, r.Emoji })
+            .Select(g => new { g.Key.MessageId, g.Key.Emoji, Count = g.Count() })
+            .ToListAsync();
+
+        var myReacts = await _context.MessageReactions
+            .Where(r => msgIds.Contains(r.MessageId) && r.UserId == currentUserId)
+            .ToListAsync();
+
+        return grouped
+            .GroupBy(x => x.MessageId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => new ReactionSummaryDto
+                {
+                    Emoji = x.Emoji,
+                    Count = x.Count,
+                    Mine = myReacts.Any(mr => mr.MessageId == x.MessageId && mr.Emoji == x.Emoji)
+                }).ToList()
+            );
+    }
+
+    private static ReceivedMessageResponse ToResponse(Message m, Dictionary<Guid, List<ReactionSummaryDto>> reactions) => new()
+    {
+        MessageId = m.Id,
+        SenderId = m.SenderId,
+        ReceiverId = m.ReceiverId,
+        EncryptedContent = m.EncryptedContent,
+        SentAt = m.SentAt,
+        FileUrl = m.FileUrl,
+        IsRead = m.IsRead,
+        DeliveredAtUtc = m.DeliveredAtUtc,
+        ReadAtUtc = m.ReadAtUtc,
+        ReplyToMessageId = m.ReplyToMessageId,
+        IsDeleted = m.IsDeleted,
+        UpdatedAtUtc = m.UpdatedAtUtc,
+        Reactions = reactions.TryGetValue(m.Id, out var list) ? list : new List<ReactionSummaryDto>(),
+        ForwardedFromMessageId = m.ForwardedFromMessageId,
+        ForwardedFromSenderId = m.ForwardedFromSenderId
+    };
+
+    private static NotFoundException MessageNotFound() =>
+        new("message_not_found", "Message not found.");
 }

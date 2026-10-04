@@ -1,25 +1,24 @@
-﻿using FluentValidation;
+using System.Text;
+using System.Threading.RateLimiting;
+using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
+using Phichat.API.Hubs;
 using Phichat.API.Middleware;
-using Phichat.Application.DTOs.Auth;
+using Phichat.API.Security;
 using Phichat.Application.Interfaces;
-using Phichat.Domain.Entities;
 using Phichat.Infrastructure.Data;
+using Phichat.Infrastructure.Security;
 using Phichat.Infrastructure.Services;
 using Serilog;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
-using Phichat.API.Hubs;
-
-
 
 
 Log.Logger = new LoggerConfiguration()
@@ -40,9 +39,12 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseSerilog();
 
+
+// ---------- Configuration (fail fast on missing secrets) ----------
+
 // Secrets come from user-secrets (Development) or environment variables (Jwt__Key, ConnectionStrings__DefaultConnection).
-var jwtKey = builder.Configuration["Jwt:Key"];
-if (string.IsNullOrWhiteSpace(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < 32)
+var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+if (string.IsNullOrWhiteSpace(jwtOptions.Key) || Encoding.UTF8.GetByteCount(jwtOptions.Key) < 32)
     throw new InvalidOperationException(
         "Jwt:Key is missing or shorter than 32 bytes. Set it with " +
         "`dotnet user-secrets set \"Jwt:Key\" \"<random-secret>\" --project Phichat.API` " +
@@ -54,30 +56,40 @@ if (string.IsNullOrWhiteSpace(connectionString))
         "ConnectionStrings:DefaultConnection is not configured. Set it in appsettings.Development.json, " +
         "user-secrets or the ConnectionStrings__DefaultConnection environment variable.");
 
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+builder.Services.Configure<SmsCodeOptions>(builder.Configuration.GetSection(SmsCodeOptions.SectionName));
+builder.Services.Configure<RefreshTokenCookieOptions>(builder.Configuration.GetSection(RefreshTokenCookieOptions.SectionName));
+
+
+// ---------- MVC, SignalR, validation ----------
 
 builder.Services.AddControllers();
 
-
-builder.Services.AddSignalR();
-
-
+builder.Services.AddSignalR(options =>
+{
+    // Encrypted text messages are capped at 64 KB of base64; leave headroom for the envelope.
+    options.MaximumReceiveMessageSize = 128 * 1024;
+    options.AddFilter<AppExceptionHubFilter>();
+});
 
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddFluentValidationClientsideAdapters();
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 
-
 builder.Services.AddEndpointsApiExplorer();
-
-
 builder.Services.AddSwaggerGen();
 
 
-builder.Services.AddScoped<IUserService, UserService>();
+// ---------- Application services ----------
+
+builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddSingleton<ISmsSender, ConsoleSmsSender>();
+builder.Services.AddScoped<ISmsCodeService, SmsCodeService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
 builder.Services.AddScoped<IChatKeyService, ChatKeyService>();
-
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
@@ -85,62 +97,25 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 });
 
 
+// ---------- Authentication ----------
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
-
-
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
-    options.Events = new JwtBearerEvents
-    {
-        OnMessageReceived = context =>
-        {
-            var rawHeader = context.Request.Headers["Authorization"].FirstOrDefault();
-
-            Console.WriteLine(" Raw Authorization Header: " + rawHeader);
-
-            if (!string.IsNullOrWhiteSpace(rawHeader) && rawHeader.StartsWith("Bearer "))
-            {
-                var token = rawHeader.Substring("Bearer ".Length).Trim();
-
-                Console.WriteLine(" Extracted Token: " + token);
-
-                if (token.Contains('.'))
-                {
-                    Console.WriteLine(" Token contains dots.");
-                }
-                else
-                {
-                    Console.WriteLine(" Token does NOT contain dots.");
-                }
-
-                context.Token = token;
-            }
-
-            return Task.CompletedTask;
-        },
-
-        OnAuthenticationFailed = context =>
-        {
-            Console.WriteLine(" JWT Auth Failed:");
-            Console.WriteLine(context.Exception.ToString());
-            return Task.CompletedTask;
-        }
-    };
+    options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
 
     options.Events = new JwtBearerEvents
     {
         OnMessageReceived = context =>
         {
+            // Browsers cannot set headers on WebSocket requests, so the hub receives the token in the query string.
             var accessToken = context.Request.Query["access_token"];
-
             var path = context.HttpContext.Request.Path;
-            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/chat"))
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments(ChatHub.Path))
             {
                 context.Token = accessToken;
             }
@@ -149,26 +124,80 @@ builder.Services.AddAuthentication(options =>
         }
     };
 
-
-
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        ValidIssuer = jwtOptions.Issuer,
+        ValidAudience = jwtOptions.Audience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key)),
+        ClockSkew = TimeSpan.FromSeconds(30)
     };
 });
 
+
+// ---------- Rate limiting ----------
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, token) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            context.HttpContext.Response.Headers.RetryAfter = Math.Ceiling(retryAfter.TotalSeconds).ToString("0");
+
+        var problem = new ProblemDetails
+        {
+            Status = StatusCodes.Status429TooManyRequests,
+            Title = "Too Many Requests",
+            Detail = "Too many requests. Please wait a moment and try again."
+        };
+        problem.Extensions["code"] = "rate_limited";
+
+        await context.HttpContext.Response.WriteAsJsonAsync(problem, options: null, contentType: "application/problem+json", cancellationToken: token);
+    };
+
+    static string ClientIp(HttpContext context) =>
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    static RateLimitPartition<string> PerIp(HttpContext context, int permits, TimeSpan window) =>
+        RateLimitPartition.GetFixedWindowLimiter(ClientIp(context), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = permits,
+            Window = window,
+            QueueLimit = 0
+        });
+
+    options.AddPolicy(RateLimitPolicies.Auth, context => PerIp(context, 10, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(RateLimitPolicies.Sms, context => PerIp(context, 5, TimeSpan.FromMinutes(15)));
+    options.AddPolicy(RateLimitPolicies.Refresh, context => PerIp(context, 30, TimeSpan.FromMinutes(1)));
+    options.AddPolicy(RateLimitPolicies.Lookup, context => PerIp(context, 30, TimeSpan.FromMinutes(1)));
+
+    options.AddPolicy(RateLimitPolicies.Upload, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? ClientIp(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+});
+
+
+// ---------- CORS ----------
+
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() is { Length: > 0 } origins
+    ? origins
+    : new[] { "http://localhost:5173" };
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -179,35 +208,57 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
+else
+{
+    app.UseHsts();
+}
 
 app.UseHttpsRedirection();
 
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers.XContentTypeOptions = "nosniff";
+    headers.XFrameOptions = "DENY";
+    headers["Referrer-Policy"] = "no-referrer";
+    await next();
+});
 
-app.UseMiddleware<ExceptionHandlingMiddleware>();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx => UploadedFileHeaders.Apply(ctx.Context)
+});
+
+// Message attachments. Unknown types are served as downloads; nothing uploaded can run as a page on this origin.
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(uploadsRoot),
+    RequestPath = "/uploads",
+    ContentTypeProvider = new FileExtensionContentTypeProvider(),
+    ServeUnknownFileTypes = true,
+    DefaultContentType = "application/octet-stream",
+    OnPrepareResponse = ctx => UploadedFileHeaders.Apply(ctx.Context)
+});
 
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
-
-
-app.UseStaticFiles();
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(uploadsRoot),
-    RequestPath = "/uploads"
-});
-
 
 app.MapControllers();
 
-app.MapHub<ChatHub>("/chat");
+app.MapHub<ChatHub>(ChatHub.Path, options =>
+{
+    // Drop connections whose access token expired; the client reconnects with a refreshed token.
+    options.CloseOnAuthenticationExpiration = true;
+});
 
 app.Run();

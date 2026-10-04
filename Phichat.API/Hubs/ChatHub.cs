@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Phichat.Application.DTOs.Message;
 using Phichat.Application.Interfaces;
@@ -10,6 +10,9 @@ namespace Phichat.API.Hubs;
 [Authorize]
 public class ChatHub : Hub
 {
+    /// <summary>Hub endpoint. Kept under /hubs so it never collides with client-side routes such as /chat.</summary>
+    public const string Path = "/hubs/chat";
+
     private static readonly Dictionary<Guid, string> OnlineUsers = new();
 
     private readonly IMessageService _messageService;
@@ -26,7 +29,6 @@ public class ChatHub : Hub
     {
         public Guid ReceiverId { get; set; }
         public string EncryptedText { get; set; } = string.Empty;
-        public string? FileUrl { get; set; }
         public string? ClientId { get; set; }
         public Guid? ReplyToMessageId { get; set; }
         public Guid? ForwardedFromMessageId { get; set; }  // NEW
@@ -86,30 +88,25 @@ public class ChatHub : Hub
         {
             ReceiverId = dto.ReceiverId,
             EncryptedText = dto.EncryptedText,
-            FileUrl = dto.FileUrl,
             ReplyToMessageId = dto.ReplyToMessageId,
             ForwardedFromMessageId = dto.ForwardedFromMessageId
-
         };
 
-        await _messageService.SendMessageAsync(senderId, request);
-
-        // fetch saved message to get Id & SentAt
-        var latest = await _messageService.GetLastMessageBetweenAsync(senderId, dto.ReceiverId);
+        var latest = await _messageService.SendMessageAsync(senderId, request);
 
         // send to receiver if online
         if (OnlineUsers.TryGetValue(dto.ReceiverId, out var receiverConn))
         {
             await Clients.Client(receiverConn).SendAsync("ReceiveMessage", new
             {
-                MessageId = latest?.Id,       // add message id
+                MessageId = latest.Id,
                 SenderId = senderId,
-                EncryptedText = dto.EncryptedText,
-                FileUrl = dto.FileUrl,
-                SentAt = latest?.SentAt ?? DateTime.UtcNow,
-                ReplyToMessageId = dto.ReplyToMessageId,
-                ForwardedFromMessageId = latest?.ForwardedFromMessageId,
-                ForwardedFromSenderId = latest?.ForwardedFromSenderId
+                EncryptedText = latest.EncryptedContent,
+                FileUrl = latest.FileUrl,
+                SentAt = latest.SentAt,
+                ReplyToMessageId = latest.ReplyToMessageId,
+                ForwardedFromMessageId = latest.ForwardedFromMessageId,
+                ForwardedFromSenderId = latest.ForwardedFromSenderId
             });
         }
 
@@ -117,57 +114,20 @@ public class ChatHub : Hub
         {
             await Clients.Client(sc).SendAsync("Delivered", new
             {
-                MessageId = latest?.Id,
+                MessageId = latest.Id,
                 ReceiverId = dto.ReceiverId,
                 ClientId = dto.ClientId,            // <- echo back
-                SentAt = latest?.SentAt ?? DateTime.UtcNow,
-                deliveredAtUtc = latest?.DeliveredAtUtc,
-                ForwardedFromMessageId = latest?.ForwardedFromMessageId,   // NEW
-                ForwardedFromSenderId = latest?.ForwardedFromSenderId
+                SentAt = latest.SentAt,
+                deliveredAtUtc = latest.DeliveredAtUtc,
+                FileUrl = latest.FileUrl,
+                ForwardedFromMessageId = latest.ForwardedFromMessageId,
+                ForwardedFromSenderId = latest.ForwardedFromSenderId
             });
         }
     }
 
 
 
-
-    public async Task SendMessageWithFile(SendMessageViaHubRequest request)
-    {
-        var senderIdStr = Context.User?.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
-        if (!Guid.TryParse(senderIdStr, out var senderId))
-            return;
-
-        var uploadPath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
-
-        await _messageService.SendMessageFromHubAsync(senderId, request, uploadPath);
-
-        var latest = await _messageService.GetLastMessageBetweenAsync(senderId, request.ReceiverId);
-
-        if (OnlineUsers.TryGetValue(request.ReceiverId, out var connId))
-        {
-            await Clients.Client(connId).SendAsync("ReceiveMessage", new
-            {
-                MessageId = latest?.Id,
-                SenderId = senderId,
-                EncryptedText = request.EncryptedText,
-                FileUrl = latest?.FileUrl,
-                SentAt = latest?.SentAt ?? DateTime.UtcNow,
-                ReplyToMessageId = request.ReplyToMessageId,
-                ForwardedFromMessageId = latest?.ForwardedFromMessageId,
-                ForwardedFromSenderId = latest?.ForwardedFromSenderId
-            });
-        }
-
-        if (OnlineUsers.TryGetValue(senderId, out var senderConn))
-        {
-            await Clients.Client(senderConn).SendAsync("Delivered", new
-            {
-                MessageId = latest?.Id,
-                ReceiverId = request.ReceiverId,
-                SentAt = latest?.SentAt ?? DateTime.UtcNow
-            });
-        }
-    }
 
     public async Task MarkMessageAsRead(Guid messageId)
     {

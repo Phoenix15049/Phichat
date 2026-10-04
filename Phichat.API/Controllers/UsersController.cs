@@ -1,49 +1,34 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Phichat.API.Security;
+using Phichat.Application.Common.Exceptions;
 using Phichat.Application.DTOs.User;
 using Phichat.Application.Interfaces;
 using Phichat.Infrastructure.Data;
-using Phichat.Infrastructure.Services;
 using System.Security.Claims;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class UsersController : ControllerBase
 {
-    private readonly IUserService _userService;
+    private const long MaxAvatarBytes = 10_000_000;
 
+    private readonly IUserService _userService;
     private readonly AppDbContext _context;
+
     public UsersController(AppDbContext context, IUserService userService)
     {
         _context = context;
         _userService = userService;
     }
 
+    private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-
-    [Authorize]
-    [HttpGet("list")]
-    public async Task<IActionResult> GetUsers()
-    {
-        var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-
-        var users = await _context.Users
-            .Select(u => new UserDto
-            {
-                Id = u.Id,
-                Username = u.Username,
-                LastSeenUtc = u.LastSeenUtc,
-                DisplayName = u.DisplayName,
-                AvatarUrl = u.AvatarUrl
-            })
-            .ToListAsync();
-
-        return Ok(users);
-    }
-
-
-    [HttpGet("{id}")]
+    [HttpGet("{id:guid}")]
     public async Task<ActionResult<UserDto>> Get(Guid id)
     {
         var user = await _userService.GetUserByIdAsync(id);
@@ -51,11 +36,33 @@ public class UsersController : ControllerBase
         return Ok(user);
     }
 
+    /// <summary>Public profile. The phone number is private and only returned by <c>/me</c>.</summary>
     [HttpGet("by-username/{username}")]
     public async Task<IActionResult> GetByUsername(string username)
     {
         var u = await _context.Users
             .Where(x => x.Username == username)
+            .Select(x => new UserProfileDto
+            {
+                Id = x.Id,
+                Username = x.Username,
+                DisplayName = x.DisplayName,
+                AvatarUrl = x.AvatarUrl,
+                Bio = x.Bio,
+                LastSeenUtc = x.LastSeenUtc
+            })
+            .FirstOrDefaultAsync();
+
+        if (u == null) return NotFound();
+        return Ok(u);
+    }
+
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMe()
+    {
+        var userId = CurrentUserId;
+        var u = await _context.Users
+            .Where(x => x.Id == userId)
             .Select(x => new UserProfileDto
             {
                 Id = x.Id,
@@ -72,104 +79,85 @@ public class UsersController : ControllerBase
         return Ok(u);
     }
 
-    [Authorize]
-    [HttpGet("me")]
-    public async Task<IActionResult> GetMe()
-    {
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var u = await _context.Users
-            .Where(x => x.Id == userId)
-            .Select(x => new UserProfileDto
-            {
-                Id = x.Id,
-                Username = x.Username,
-                DisplayName = x.DisplayName,
-                AvatarUrl = x.AvatarUrl,
-                Bio = x.Bio,
-                LastSeenUtc = x.LastSeenUtc
-            })
-            .FirstOrDefaultAsync();
-
-        if (u == null) return NotFound();
-        return Ok(u);
-    }
-
-    [Authorize]
     [HttpPut("profile")]
     public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest req)
     {
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = CurrentUserId;
         var user = await _context.Users.FindAsync(userId);
         if (user == null) return NotFound();
 
-        user.DisplayName = req.DisplayName?.Trim();
-        user.AvatarUrl = req.AvatarUrl?.Trim();
-        user.Bio = req.Bio?.Trim();
+        user.DisplayName = NullIfEmpty(req.DisplayName);
+        user.AvatarUrl = NormalizeAvatarUrl(req.AvatarUrl, userId);
+        user.Bio = NullIfEmpty(req.Bio);
 
         await _context.SaveChangesAsync();
         return NoContent();
     }
 
-    [Authorize]
-[HttpPost("avatar")]
-[Consumes("multipart/form-data")]
-[RequestFormLimits(MultipartBodyLengthLimit = 10_000_000)]
-[RequestSizeLimit(10_000_000)]
-public async Task<IActionResult> UploadAvatar([FromForm] AvatarUploadRequest model)
-{
-    var file = model.File;
-    if (file == null || file.Length == 0)
-        return BadRequest("No file.");
+    [HttpPost("avatar")]
+    [Consumes("multipart/form-data")]
+    [EnableRateLimiting(RateLimitPolicies.Upload)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaxAvatarBytes)]
+    [RequestSizeLimit(MaxAvatarBytes)]
+    public async Task<IActionResult> UploadAvatar([FromForm] AvatarUploadRequest model)
+    {
+        var file = model.File;
+        if (file == null || file.Length == 0)
+            throw new BadRequestException("file_required", "No file.");
 
-    var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
-    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-    if (!allowed.Contains(ext))
-        return BadRequest("Invalid file type.");
+        // Trust the bytes, not the client's file name or content type.
+        var ext = await ImageSignature.DetectExtensionAsync(file)
+            ?? throw new BadRequestException("invalid_image", "Only JPEG, PNG, WebP or GIF images are allowed.");
 
-    var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = CurrentUserId;
 
-    // wwwroot/uploads/avatars/{userId}/yyyyMMddHHmmssfff.ext
-    var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-    var dir = Path.Combine(webRoot, "uploads", "avatars", userId.ToString());
-    Directory.CreateDirectory(dir);
+        // wwwroot/uploads/avatars/{userId}/yyyyMMddHHmmssfff.ext
+        var dir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "avatars", userId.ToString());
+        Directory.CreateDirectory(dir);
 
-    var fileName = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}{ext}";
-    var fullPath = Path.Combine(dir, fileName);
+        var fileName = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}{ext}";
+        var fullPath = Path.Combine(dir, fileName);
 
-    using (var stream = new FileStream(fullPath, FileMode.Create))
-        await file.CopyToAsync(stream);
+        await using (var stream = new FileStream(fullPath, FileMode.Create))
+            await file.CopyToAsync(stream);
 
-    var relativeUrl = $"/uploads/avatars/{userId}/{fileName}";
-    return Ok(new { url = relativeUrl });
-}
+        var relativeUrl = $"/uploads/avatars/{userId}/{fileName}";
+        return Ok(new { url = relativeUrl });
+    }
 
-
-
-
-
-
+    [AllowAnonymous]
     [HttpGet("check-username")]
+    [EnableRateLimiting(RateLimitPolicies.Lookup)]
     public async Task<IActionResult> CheckUsername([FromQuery] string u)
     {
-        if (string.IsNullOrWhiteSpace(u)) return BadRequest();
+        if (string.IsNullOrWhiteSpace(u) || u.Length > 64) return BadRequest();
         var exists = await _context.Users.AnyAsync(x => x.Username == u);
         return Ok(new { available = !exists });
     }
 
-    [Authorize]
-    [HttpPatch("display-name")]
-    public async Task<IActionResult> UpdateDisplayName([FromBody] string dto)
+    private static string? NullIfEmpty(string? value)
     {
-        if (dto == null || string.IsNullOrWhiteSpace(dto))
-            return BadRequest("Invalid display name");
-
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var user = await _context.Users.FirstOrDefaultAsync(x => x.Id == userId);
-        if (user == null) return NotFound();
-
-        user.DisplayName = dto.Trim();
-        await _context.SaveChangesAsync();
-        return Ok();
+        var trimmed = value?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 
+    /// <summary>
+    /// Only avatars uploaded by this user through <c>POST /api/users/avatar</c> are accepted, so a profile
+    /// cannot point viewers' browsers at an arbitrary external URL. Stored as a server-relative path.
+    /// </summary>
+    private static string? NormalizeAvatarUrl(string? value, Guid userId)
+    {
+        var url = NullIfEmpty(value);
+        if (url == null) return null;
+
+        var path = Uri.TryCreate(url, UriKind.Absolute, out var absolute) && absolute.Scheme is "http" or "https"
+            ? absolute.AbsolutePath
+            : url;
+
+        var pattern = $@"^/uploads/avatars/{userId}/[0-9]{{17}}\.(jpe?g|png|webp|gif)$";
+        if (!Regex.IsMatch(path, pattern, RegexOptions.IgnoreCase))
+            throw new BadRequestException("invalid_avatar_url", "Avatar must be an image uploaded to your profile.");
+
+        return path;
+    }
 }

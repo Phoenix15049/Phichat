@@ -5,7 +5,8 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.5" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.5" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.0.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.1.0" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.1.0" />
     <ProjectReference Include="..\Phichat.Application\Phichat.Application.csproj" />
     <ProjectReference Include="..\Phichat.Domain\Phichat.Domain.csproj" />
 	  <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.5">
