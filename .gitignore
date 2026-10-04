@@ -363,3 +363,12 @@ MigrationBackup/
 FodyWeavers.xsd
 /Phichat.API/Uploads
 /Phichat.API/wwwroot/uploads/avatars
+
+# PhiChat runtime data (user uploads, avatars, logs) - never commit
+/Phichat.API/wwwroot/uploads/
+/Phichat.API/Logs/
+
+# Local environment overrides
+.env
+.env.*
+!.env.example

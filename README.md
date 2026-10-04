@@ -96,26 +96,38 @@ PhiChat is designed around encrypted communication:
 
 ### Configuration
 
-Update database and authentication settings in:
+Secrets are **not** stored in `appsettings.json`. The API refuses to start
+until both of these are configured:
 
-    Phichat.API/appsettings.json
+| Setting | Development | Production (environment variable) |
+|---|---|---|
+| `Jwt:Key` (at least 32 bytes, random) | user-secrets | `Jwt__Key` |
+| `ConnectionStrings:DefaultConnection` | `appsettings.Development.json` (local SQL Express) or user-secrets | `ConnectionStrings__DefaultConnection` |
 
-Example:
+Set the JWT signing key for local development (run once per machine):
 
-``` json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "your_database_connection"
-  }
-}
+``` bash
+dotnet user-secrets set "Jwt:Key" "<a-long-random-secret>" --project Phichat.API
 ```
+
+A suitable key can be generated with `openssl rand -base64 64`.
+
+To use a different database locally, override the connection string the same way:
+
+``` bash
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "<connection-string>" --project Phichat.API
+```
+
+Uploaded files (`Phichat.API/Uploads`, `Phichat.API/wwwroot/uploads`) and logs
+are runtime data and are ignored by git; the folders are created on startup.
 
 ### Database Migration
 
-Run:
+Run from the repository root (the design-time factory reads the same
+appsettings, user-secrets and environment variables as the API):
 
 ``` bash
-dotnet ef database update
+dotnet ef database update --project Phichat.Infrastructure --startup-project Phichat.API
 ```
 
 ### Run the API

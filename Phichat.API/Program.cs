@@ -30,9 +30,29 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 
 
+// Upload folders are not tracked in git, so create them on a fresh checkout.
+// wwwroot must exist before the builder is created, otherwise static files are not served from it.
+var uploadsRoot = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
+Directory.CreateDirectory(uploadsRoot);
+Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "avatars"));
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseSerilog();
+
+// Secrets come from user-secrets (Development) or environment variables (Jwt__Key, ConnectionStrings__DefaultConnection).
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < 32)
+    throw new InvalidOperationException(
+        "Jwt:Key is missing or shorter than 32 bytes. Set it with " +
+        "`dotnet user-secrets set \"Jwt:Key\" \"<random-secret>\" --project Phichat.API` " +
+        "or the Jwt__Key environment variable.");
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException(
+        "ConnectionStrings:DefaultConnection is not configured. Set it in appsettings.Development.json, " +
+        "user-secrets or the ConnectionStrings__DefaultConnection environment variable.");
 
 
 builder.Services.AddControllers();
@@ -61,7 +81,7 @@ builder.Services.AddScoped<IChatKeyService, ChatKeyService>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.UseSqlServer(connectionString);
 });
 
 
@@ -139,7 +159,7 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
     };
 });
 
@@ -181,8 +201,7 @@ app.UseAuthorization();
 app.UseStaticFiles();
 app.UseStaticFiles(new StaticFileOptions
 {
-    FileProvider = new PhysicalFileProvider(
-        Path.Combine(Directory.GetCurrentDirectory(), "Uploads")),
+    FileProvider = new PhysicalFileProvider(uploadsRoot),
     RequestPath = "/uploads"
 });
 
