@@ -1,179 +1,115 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 using Phichat.API.Hubs;
+using Phichat.API.Security;
 using Phichat.Application.DTOs.Message;
-using Phichat.Application.Interfaces;
-using Phichat.Infrastructure.Data;
 using System.Security.Claims;
-
-public class EncryptedFileUploadRequest
-{
-    public IFormFile File { get; set; }
-}
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
 public class MessagesController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    public const long MaxFileBytes = 50_000_000;
+
     private readonly IMessageService _messageService;
     private readonly IHubContext<ChatHub> _hub;
 
-
-    public MessagesController(AppDbContext context, IMessageService messageService, IHubContext<ChatHub> hub)
+    public MessagesController(IMessageService messageService, IHubContext<ChatHub> hub)
     {
-        _context = context;
         _messageService = messageService;
         _hub = hub;
     }
 
+    private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
     [HttpPost]
     public async Task<IActionResult> SendMessage(SendMessageRequest request)
     {
-        Console.WriteLine($"SendMessage invoked: to {request.ReceiverId}, text len {request.EncryptedText.Length}");
-        
-        
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        await _messageService.SendMessageAsync(userId, request);
-
+        await _messageService.SendMessageAsync(CurrentUserId, request);
         return Ok();
     }
 
     [HttpPost("with-file")]
-    [RequestSizeLimit(50_000_000)]
-    public async Task<IActionResult> SendMessageWithFile([FromForm] SendMessageWithFileRequest request)
+    [EnableRateLimiting(RateLimitPolicies.Upload)]
+    [RequestSizeLimit(MaxFileBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaxFileBytes)]
+    public async Task<IActionResult> SendMessageWithFile([FromForm] SendMessageWithFileRequest request, [FromForm] string? clientId)
     {
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var userId = CurrentUserId;
         var uploadPath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
 
-        await _messageService.SendMessageWithFileAsync(userId, request, uploadPath);
+        var saved = await _messageService.SendMessageWithFileAsync(userId, request, uploadPath);
 
-        var saved = await _messageService.GetLastMessageBetweenAsync(userId, request.ReceiverId);
-
-        var clientId = HttpContext?.Request?.Form?["clientId"].FirstOrDefault();
-
-        if (saved != null)
+        await _hub.Clients.User(request.ReceiverId.ToString()).SendAsync("ReceiveMessage", new
         {
+            clientId,
+            id = saved.Id,
+            senderId = saved.SenderId,
+            receiverId = saved.ReceiverId,
+            encryptedContent = saved.EncryptedContent,
+            fileUrl = saved.FileUrl,
+            sentAt = saved.SentAt,
+            replyToMessageId = saved.ReplyToMessageId,
+            forwardedFromMessageId = saved.ForwardedFromMessageId,
+            forwardedFromSenderId = saved.ForwardedFromSenderId
+        });
 
-            await _hub.Clients.User(request.ReceiverId.ToString()).SendAsync("ReceiveMessage", new
-            {
-                clientId = clientId,
-                id = saved.Id,
-                senderId = saved.SenderId,
-                receiverId = saved.ReceiverId,
-                encryptedContent = saved.EncryptedContent,
-                fileUrl = saved.FileUrl,
-                sentAt = saved.SentAt,
-                replyToMessageId = saved.ReplyToMessageId,
-                forwardedFromMessageId = saved.ForwardedFromMessageId,
-                forwardedFromSenderId = saved.ForwardedFromSenderId
-            });
-
-            await _hub.Clients.User(userId.ToString()).SendAsync("Delivered", new
-            {
-                clientId = clientId,
-                messageId = saved.Id,
-                sentAt = saved.SentAt,
-                deliveredAtUtc = saved.DeliveredAtUtc ?? DateTime.UtcNow,
-                encryptedText = saved.EncryptedContent,        
-                fileUrl = saved.FileUrl
-            });
-        }
-
+        await _hub.Clients.User(userId.ToString()).SendAsync("Delivered", new
+        {
+            clientId,
+            messageId = saved.Id,
+            sentAt = saved.SentAt,
+            deliveredAtUtc = saved.DeliveredAtUtc ?? DateTime.UtcNow,
+            encryptedText = saved.EncryptedContent,
+            fileUrl = saved.FileUrl
+        });
 
         return Ok();
     }
 
-
     [HttpGet("with/{userId:guid}")]
     public async Task<IActionResult> GetConversationWith(Guid userId)
     {
-        var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var messages = await _messageService.GetConversationAsync(currentUserId, userId);
+        var messages = await _messageService.GetConversationAsync(CurrentUserId, userId);
         return Ok(messages);
     }
-
-
-
-
-
-    [HttpPost("upload")]
-    [RequestSizeLimit(50_000_000)]
-    public async Task<IActionResult> UploadEncryptedFile([FromForm] EncryptedFileUploadRequest request)
-    {
-        var file = request.File;
-        if (file == null || file.Length == 0)
-            return BadRequest("فایل ارسال نشده یا خالی است.");
-
-        var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
-        if (!Directory.Exists(uploadsFolder))
-            Directory.CreateDirectory(uploadsFolder);
-
-        var fileName = Guid.NewGuid().ToString("N") + Path.GetExtension(file.FileName);
-        var filePath = Path.Combine(uploadsFolder, fileName);
-
-        using (var stream = new FileStream(filePath, FileMode.Create))
-        {
-            await file.CopyToAsync(stream);
-        }
-
-        var fileUrl = $"/uploads/{fileName}";
-        return Ok(new { url = fileUrl });
-    }
-
-
 
     [HttpGet]
     public async Task<IActionResult> GetMyMessages()
     {
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var messages = await _messageService.GetReceivedMessagesAsync(userId);
+        var messages = await _messageService.GetReceivedMessagesAsync(CurrentUserId);
         return Ok(messages);
     }
 
     [HttpGet("conversations")]
     public async Task<IActionResult> GetConversations()
     {
-        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var data = await _messageService.GetConversationsAsync(me);
+        var data = await _messageService.GetConversationsAsync(CurrentUserId);
         return Ok(data);
     }
 
-
-    [Authorize]
     [HttpGet("with-paged/{userId:guid}")]
     public async Task<IActionResult> GetWithPaged(Guid userId, [FromQuery] string? beforeId = null, [FromQuery] int pageSize = 50)
     {
-        var me = Guid.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
         Guid? anchor = null;
         if (!string.IsNullOrWhiteSpace(beforeId) && Guid.TryParse(beforeId, out var g)) anchor = g;
 
-        var result = await _messageService.GetConversationPageAsync(me, userId, anchor, pageSize);
+        var result = await _messageService.GetConversationPageAsync(CurrentUserId, userId, anchor, pageSize);
         return Ok(result);
     }
 
-
-    [Authorize]
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Edit(Guid id, [FromBody] EditMessageRequest dto)
     {
-        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-
-        var res = await _messageService.EditMessageAsync(me, id, dto.EncryptedText);
+        var res = await _messageService.EditMessageAsync(CurrentUserId, id, dto.EncryptedText);
 
         var peers = await _messageService.GetPeerIdsForMessageAsync(id);
         if (peers != null)
         {
-            var userIds = new List<string>
-        {
-            peers.Value.SenderId.ToString(),
-            peers.Value.ReceiverId.ToString()
-        };
-
-            await _hub.Clients.Users(userIds).SendAsync("MessageEdited", new
+            await _hub.Clients.Users(PeerUserIds(peers.Value)).SendAsync("MessageEdited", new
             {
                 messageId = id,
                 encryptedContent = res.EncryptedContent,
@@ -184,31 +120,24 @@ public class MessagesController : ControllerBase
         return Ok(res);
     }
 
-
-
-    [Authorize]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, [FromQuery] string scope = "me")
     {
-        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-
-        var peers = await _messageService.GetPeerIdsForMessageAsync(id);
+        var me = CurrentUserId;
 
         await _messageService.DeleteMessageAsync(me, id, scope);
 
-        if (scope == "all" && peers != null)
+        if (scope == "all")
         {
-            var userIds = new List<string>
-        {
-            peers.Value.SenderId.ToString(),
-            peers.Value.ReceiverId.ToString()
-        };
-
-            await _hub.Clients.Users(userIds).SendAsync("MessageDeleted", new
+            var peers = await _messageService.GetPeerIdsForMessageAsync(id);
+            if (peers != null)
             {
-                messageId = id,
-                scope = "all"
-            });
+                await _hub.Clients.Users(PeerUserIds(peers.Value)).SendAsync("MessageDeleted", new
+                {
+                    messageId = id,
+                    scope = "all"
+                });
+            }
         }
         else
         {
@@ -222,82 +151,46 @@ public class MessagesController : ControllerBase
         return NoContent();
     }
 
-    public class ToggleReactionRequest { public string Emoji { get; set; } = ""; }
-
-    [Authorize]
     [HttpPost("{id:guid}/reactions")]
-    public async Task<IActionResult> AddReaction(Guid id, [FromBody] ToggleReactionRequest req)
+    public async Task<IActionResult> AddReaction(Guid id, [FromBody] ReactionRequest req)
     {
-        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        await _messageService.AddReactionAsync(me, id, req.Emoji);
-
-        var peers = await _messageService.GetPeerIdsForMessageAsync(id);
-        if (peers != null)
-        {
-            var userIds = new List<string> { peers.Value.SenderId.ToString(), peers.Value.ReceiverId.ToString() };
-
-            var count = await _context.MessageReactions
-                .CountAsync(r => r.MessageId == id && r.Emoji == req.Emoji);
-
-            await _hub.Clients.Users(userIds).SendAsync("ReactionUpdated", new
-            {
-                messageId = id,
-                emoji = req.Emoji,
-                count,
-                userId = me,
-                action = "added"
-            });
-        }
+        var me = CurrentUserId;
+        var count = await _messageService.AddReactionAsync(me, id, req.Emoji);
+        await BroadcastReactionAsync(id, req.Emoji.Trim(), count, me, "added");
         return NoContent();
     }
 
-    [Authorize]
     [HttpDelete("{id:guid}/reactions")]
     public async Task<IActionResult> RemoveReaction(Guid id, [FromQuery] string emoji)
     {
-        var me = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        await _messageService.RemoveReactionAsync(me, id, emoji);
-
-        var peers = await _messageService.GetPeerIdsForMessageAsync(id);
-        if (peers != null)
-        {
-            var userIds = new List<string> { peers.Value.SenderId.ToString(), peers.Value.ReceiverId.ToString() };
-            var count = await _context.MessageReactions
-                .CountAsync(r => r.MessageId == id && r.Emoji == emoji);
-
-            await _hub.Clients.Users(userIds).SendAsync("ReactionUpdated", new
-            {
-                messageId = id,
-                emoji,
-                count,
-                userId = me,
-                action = "removed"
-            });
-        }
+        var me = CurrentUserId;
+        var count = await _messageService.RemoveReactionAsync(me, id, emoji);
+        await BroadcastReactionAsync(id, (emoji ?? "").Trim(), count, me, "removed");
         return NoContent();
     }
 
-    [Authorize]
     [HttpGet("{id:guid}/brief")]
     public async Task<IActionResult> GetBrief(Guid id)
     {
-        var m = await _context.Messages
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == id);
-        if (m == null) return NotFound();
+        var brief = await _messageService.GetBriefAsync(CurrentUserId, id);
+        return Ok(brief);
+    }
 
-        return Ok(new
+    private async Task BroadcastReactionAsync(Guid messageId, string emoji, int count, Guid userId, string action)
+    {
+        var peers = await _messageService.GetPeerIdsForMessageAsync(messageId);
+        if (peers == null) return;
+
+        await _hub.Clients.Users(PeerUserIds(peers.Value)).SendAsync("ReactionUpdated", new
         {
-            messageId = m.Id,
-            senderId = m.SenderId,
-            receiverId = m.ReceiverId,
-            encryptedContent = m.EncryptedContent,
-            fileUrl = m.FileUrl,
-            sentAt = m.SentAt,
-            replyToMessageId = m.ReplyToMessageId
+            messageId,
+            emoji,
+            count,
+            userId,
+            action
         });
     }
 
-
-
+    private static List<string> PeerUserIds((Guid SenderId, Guid ReceiverId) peers) =>
+        new() { peers.SenderId.ToString(), peers.ReceiverId.ToString() };
 }

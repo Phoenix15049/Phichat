@@ -48,7 +48,18 @@ PhiChat is designed around encrypted communication:
 -   Messages are received and stored as encrypted data.
 -   The backend does not process plaintext message content.
 -   Chat keys are managed separately from message data.
--   Authentication is handled using JWT tokens.
+-   Authentication uses short-lived JWT access tokens (15 min) plus rotating
+    refresh tokens in an HttpOnly cookie scoped to `/api/auth`; reuse of a
+    rotated refresh token revokes the whole session.
+-   Passwords are hashed with salted PBKDF2-HMAC-SHA512 (legacy hashes are
+    upgraded transparently on login).
+-   Phone sign-up requires a verified SMS code (per-code attempt limit,
+    per-phone cooldown and hourly cap; codes are stored as keyed hashes).
+-   Login, registration, SMS and upload endpoints are rate limited.
+-   Every message operation checks that the caller is a participant;
+    forwarded attachments are copied server-side, never taken from the client.
+-   Uploaded files are served with `nosniff`, a sandboxing CSP, and as
+    downloads unless they are images, audio or video.
 
 > For a complete end-to-end encryption flow, the client application is
 > responsible for encryption and decryption operations.
@@ -147,9 +158,9 @@ PhiChat uses SignalR for:
 -   Tracking user presence
 -   Delivering real-time events
 
-Hub:
+Hub (clients pass the access token as the `access_token` query parameter):
 
-    /chatHub
+    /hubs/chat
 
 ## API Documentation
 
@@ -172,10 +183,7 @@ Recommended additions:
 
 Possible improvements:
 
--   Stronger password hashing strategy (Argon2 / BCrypt)
--   Refresh token support
--   More advanced encryption key lifecycle management
--   Rate limiting
+-   More advanced encryption key lifecycle management (true end-to-end keys)
 -   Automated testing
 -   Production deployment configuration
 

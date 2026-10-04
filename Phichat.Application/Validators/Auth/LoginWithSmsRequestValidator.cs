@@ -1,11 +1,21 @@
-﻿using FluentValidation;
+using FluentValidation;
 using Phichat.Application.DTOs.Auth;
+using Phichat.Application.Validators;
 
 public class LoginWithSmsRequestValidator : AbstractValidator<LoginWithSmsRequest>
 {
     public LoginWithSmsRequestValidator()
     {
-        RuleFor(x => x.PhoneNumber).NotEmpty().Matches(@"^\+?[1-9]\d{7,14}$");
-        RuleFor(x => x.Code).NotEmpty().Length(4, 8);
+        RuleFor(x => x.PhoneNumber).ValidPhone();
+        RuleFor(x => x.Code).ValidSmsCode();
+    }
+}
+
+public class VerifyPhoneRequestValidator : AbstractValidator<VerifyPhoneRequest>
+{
+    public VerifyPhoneRequestValidator()
+    {
+        RuleFor(x => x.PhoneNumber).ValidPhone();
+        RuleFor(x => x.Code).ValidSmsCode();
     }
 }
