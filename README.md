@@ -2,16 +2,17 @@
 
 A secure messaging backend built with **ASP.NET Core 8**.\
 PhiChat provides the server-side infrastructure for a real-time
-encrypted messaging system, including authentication, message delivery,
-chat key management, and user communication features.
+end-to-end encrypted messaging system, including authentication, message
+delivery, public-key distribution, and user communication features.
 
 > Backend repository of PhiChat.
 
 ## Features
 
 -   Real-time messaging using **SignalR**
--   Encrypted message storage (server stores encrypted content)
--   Chat key management for private conversations
+-   End-to-end encryption: the server stores and relays only ciphertext
+    (messages and attachments) and never sees keys that can decrypt them
+-   Identity public keys with passphrase-encrypted private-key backups
 -   JWT-based authentication
 -   User registration and login
 -   Phone-based authentication support
@@ -43,11 +44,11 @@ The project follows a layered architecture:
 
 ## Security Approach
 
-PhiChat is designed around encrypted communication:
+PhiChat is designed around end-to-end encrypted communication (see
+[End-to-End Encryption](#end-to-end-encryption)):
 
--   Messages are received and stored as encrypted data.
--   The backend does not process plaintext message content.
--   Chat keys are managed separately from message data.
+-   Messages and attachments are encrypted on the clients; the backend
+    stores and relays ciphertext only and holds no key that can decrypt it.
 -   Authentication uses short-lived JWT access tokens (15 min) plus rotating
     refresh tokens in an HttpOnly cookie scoped to `/api/auth`; reuse of a
     rotated refresh token revokes the whole session.
@@ -61,8 +62,46 @@ PhiChat is designed around encrypted communication:
 -   Uploaded files are served with `nosniff`, a sandboxing CSP, and as
     downloads unless they are images, audio or video.
 
-> For a complete end-to-end encryption flow, the client application is
-> responsible for encryption and decryption operations.
+## End-to-End Encryption
+
+Encryption and decryption happen in the client (WebCrypto). The server
+distributes public keys, stores encrypted key backups, and checks that
+messages are in the encrypted format for the current keys.
+
+-   **Identity key**: each account has one ECDH P-256 key pair. The key id
+    is base64url of the first 16 bytes of SHA-256 over the public key
+    (SPKI), so a key id also authenticates the key served for it. The
+    server accepts only canonical, on-curve P-256 keys.
+-   **Conversation key**: ECDH between the two identity keys, then
+    HKDF-SHA256 (salted with both key ids) into an AES-256-GCM key.
+-   **Message body**: `v2:{senderKeyId}:{recipientKeyId}:{base64(iv|ciphertext|tag)}`;
+    the header is authenticated as AES-GCM additional data. The plaintext is
+    a JSON envelope with the text and, for attachments, the file's own
+    random AES-256-GCM key, name, type and size.
+-   **Attachments** are encrypted before upload; the server only sees an
+    opaque `attachment.bin`. Forwarding re-encrypts the envelope for the new
+    chat and reuses the stored ciphertext.
+-   **Backup**: the private key (PKCS#8) is encrypted on the client with
+    AES-256-GCM under PBKDF2-SHA256 (600k iterations) of a recovery
+    passphrase chosen by the user; the server stores only that ciphertext.
+    A lost passphrase means a new key: earlier messages become unreadable.
+-   **Key changes**: replaced keys are kept (revoked) so peers can still read
+    earlier messages. Sends encrypted for an outdated key are rejected
+    (`recipient_key_changed`, `sender_key_outdated`) so the client
+    re-encrypts. Related users get an `IdentityKeyChanged` hub event, and
+    clients show a warning plus a 60-digit security code to compare.
+
+Key endpoints (all require authentication):
+
+    GET  /api/keys/me              own key + encrypted backup (204 if none)
+    POST /api/keys/me              publish the first key
+    PUT  /api/keys/me              replace the key (lost passphrase)
+    PUT  /api/keys/me/backup       re-encrypted backup (passphrase change)
+    GET  /api/keys/{userId}        a user's active public key
+    GET  /api/keys/{userId}/{keyId} a specific (possibly revoked) public key
+
+Messages sent before end-to-end encryption used server-held keys; those keys
+were deleted, so such messages can no longer be decrypted.
 
 ## Technologies
 
@@ -174,7 +213,9 @@ dotnet test
 ```
 
 Unit tests live in `Phichat.Tests` (presence tracking, password hashing,
-upload file-name sanitizing and image signature checks).
+upload file-name sanitizing and image signature checks, identity-key
+validation and key-id compatibility with WebCrypto, the encrypted message
+format, and the identity-key service against SQLite).
 
 ## API Documentation
 
@@ -197,7 +238,7 @@ Recommended additions:
 
 Possible improvements:
 
--   More advanced encryption key lifecycle management (true end-to-end keys)
+-   Forward secrecy (a ratchet per conversation) and per-device keys
 -   Integration tests against a real database
 -   Production deployment configuration
 

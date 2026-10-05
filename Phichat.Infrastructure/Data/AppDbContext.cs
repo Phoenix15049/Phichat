@@ -13,12 +13,12 @@ public class AppDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<Message> Messages => Set<Message>();
-    public DbSet<ChatKey> ChatKeys { get; set; }
     public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<PhoneVerification> PhoneVerifications => Set<PhoneVerification>();
     public DbSet<MessageHide> MessageHides => Set<MessageHide>();
     public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<UserIdentityKey> UserIdentityKeys => Set<UserIdentityKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,12 +49,6 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(x => x.ReceiverId)
                   .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        //ChatKey config
-        modelBuilder.Entity<ChatKey>(b =>
-        {
-            b.HasKey(x => x.Id);
         });
 
         modelBuilder.Entity<User>()
@@ -120,5 +114,28 @@ public class AppDbContext : DbContext
                   .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<UserIdentityKey>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.KeyId).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.PublicKey).IsRequired().HasMaxLength(256);
+            entity.Property(x => x.BackupCiphertext).HasMaxLength(1024);
+            entity.Property(x => x.BackupSalt).HasMaxLength(128);
+            entity.Property(x => x.BackupIv).HasMaxLength(32);
+            entity.Property(x => x.BackupKdf).HasMaxLength(32);
+
+            entity.HasIndex(x => x.KeyId).IsUnique();
+
+            // At most one active key per user; also guards concurrent publishes.
+            entity.HasIndex(x => x.UserId)
+                  .IsUnique()
+                  .HasFilter("[RevokedAtUtc] IS NULL")
+                  .HasDatabaseName("IX_UserIdentityKeys_UserId_Active");
+
+            entity.HasOne(x => x.User)
+                  .WithMany()
+                  .HasForeignKey(x => x.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 }

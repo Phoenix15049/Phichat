@@ -100,30 +100,6 @@ namespace Phichat.Infrastructure.Migrations
                     b.ToTable("MessageReactions");
                 });
 
-            modelBuilder.Entity("Phichat.Domain.Entities.ChatKey", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid>("ReceiverId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("SenderId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<byte[]>("SymmetricKey")
-                        .IsRequired()
-                        .HasColumnType("varbinary(max)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("ChatKeys");
-                });
-
             modelBuilder.Entity("Phichat.Domain.Entities.Contact", b =>
                 {
                     b.Property<Guid>("Id")
@@ -288,6 +264,66 @@ namespace Phichat.Infrastructure.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("Phichat.Domain.Entities.UserIdentityKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BackupCiphertext")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
+                    b.Property<int?>("BackupIterations")
+                        .HasColumnType("int");
+
+                    b.Property<string>("BackupIv")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("BackupKdf")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("BackupSalt")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime?>("BackupUpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("PublicKey")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("KeyId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_UserIdentityKeys_UserId_Active")
+                        .HasFilter("[RevokedAtUtc] IS NULL");
+
+                    b.ToTable("UserIdentityKeys");
+                });
+
             modelBuilder.Entity("Message", b =>
                 {
                     b.HasOne("Phichat.Domain.Entities.User", "Receiver")
@@ -334,6 +370,17 @@ namespace Phichat.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("Phichat.Domain.Entities.RefreshToken", b =>
+                {
+                    b.HasOne("Phichat.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Phichat.Domain.Entities.UserIdentityKey", b =>
                 {
                     b.HasOne("Phichat.Domain.Entities.User", "User")
                         .WithMany()

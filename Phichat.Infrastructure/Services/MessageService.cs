@@ -1,6 +1,7 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Phichat.Application.Common.Exceptions;
 using Phichat.Application.DTOs.Message;
+using Phichat.Application.Interfaces;
 using Phichat.Application.Validators;
 using Phichat.Domain.Entities;
 using Phichat.Infrastructure.Data;
@@ -9,10 +10,12 @@ using Phichat.Infrastructure.Files;
 public class MessageService : IMessageService
 {
     private readonly AppDbContext _context;
+    private readonly IIdentityKeyService _identityKeys;
 
-    public MessageService(AppDbContext context)
+    public MessageService(AppDbContext context, IIdentityKeyService identityKeys)
     {
         _context = context;
+        _identityKeys = identityKeys;
     }
 
     public async Task<Message> SendMessageAsync(Guid senderId, SendMessageRequest request)
@@ -22,6 +25,7 @@ public class MessageService : IMessageService
             throw new BadRequestException("invalid_message", "Message is empty or too large.");
 
         await EnsureReceiverExistsAsync(request.ReceiverId);
+        await _identityKeys.EnsureMessageKeysAsync(senderId, request.ReceiverId, request.EncryptedText);
         await EnsureReplyTargetAsync(senderId, request.ReceiverId, request.ReplyToMessageId);
 
         var message = new Message
@@ -52,7 +56,12 @@ public class MessageService : IMessageService
 
     public async Task<Message> SendMessageWithFileAsync(Guid senderId, SendMessageWithFileRequest request, string uploadRootPath)
     {
+        if (request.EncryptedText == null || request.EncryptedText.Length > ValidationRules.EncryptedTextMaxLength)
+            throw new BadRequestException("invalid_message", "Message is empty or too large.");
+
         await EnsureReceiverExistsAsync(request.ReceiverId);
+        // The file key travels inside the encrypted text, so the text is always required here.
+        await _identityKeys.EnsureMessageKeysAsync(senderId, request.ReceiverId, request.EncryptedText);
         await EnsureReplyTargetAsync(senderId, request.ReceiverId, request.ReplyToMessageId);
 
         if (request.File == null || request.File.Length == 0)
@@ -72,7 +81,7 @@ public class MessageService : IMessageService
             Id = Guid.NewGuid(),
             SenderId = senderId,
             ReceiverId = request.ReceiverId,
-            EncryptedContent = request.EncryptedText ?? "",
+            EncryptedContent = request.EncryptedText,
             FileUrl = "/uploads/" + Uri.EscapeDataString(storedName),
             SentAt = DateTime.UtcNow,
             ReplyToMessageId = request.ReplyToMessageId
@@ -154,6 +163,7 @@ public class MessageService : IMessageService
                     PeerUsername = p?.Username ?? "unknown",
                     PeerDisplayName = p?.DisplayName,
                     PeerAvatarUrl = p?.AvatarUrl,
+                    LastSenderId = x.Last.SenderId,
                     LastEncryptedContent = x.Last.EncryptedContent,
                     LastFileUrl = x.Last.FileUrl,
                     LastSentAt = x.Last.SentAt,
@@ -238,7 +248,12 @@ public class MessageService : IMessageService
         if (m.SenderId != userId) throw new ForbiddenException("not_message_owner", "Only the sender can edit this message.");
         if (m.IsDeleted) throw new BadRequestException("message_deleted", "A deleted message cannot be edited.");
 
-        m.EncryptedContent = encryptedText ?? "";
+        if (string.IsNullOrEmpty(encryptedText) || encryptedText.Length > ValidationRules.EncryptedTextMaxLength)
+            throw new BadRequestException("invalid_message", "Message is empty or too large.");
+
+        await _identityKeys.EnsureMessageKeysAsync(userId, m.ReceiverId, encryptedText);
+
+        m.EncryptedContent = encryptedText;
         m.UpdatedAtUtc = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
