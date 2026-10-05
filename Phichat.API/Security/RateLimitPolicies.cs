@@ -1,4 +1,4 @@
-namespace Phichat.API.Security;
+﻿namespace Phichat.API.Security;
 
 public static class RateLimitPolicies
 {
@@ -16,4 +16,7 @@ public static class RateLimitPolicies
 
     /// <summary>File and avatar uploads, per authenticated user.</summary>
     public const string Upload = "upload";
+
+    /// <summary>Link preview fetches (the server makes outbound requests), per authenticated user.</summary>
+    public const string LinkPreview = "link-preview";
 }

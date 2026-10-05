@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
@@ -129,6 +129,38 @@ public class MessagesController : ControllerBase
 
         return NoContent();
     }
+
+    [HttpGet("pinned/{peerId:guid}")]
+    public async Task<IActionResult> GetPinned(Guid peerId)
+    {
+        return Ok(await _messageService.GetPinnedAsync(CurrentUserId, peerId));
+    }
+
+    [HttpPost("{id:guid}/pin")]
+    public async Task<IActionResult> Pin(Guid id)
+    {
+        var peers = await _messageService.PinAsync(CurrentUserId, id);
+        await NotifyPinsChangedAsync(id, peers, pinned: true);
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}/pin")]
+    public async Task<IActionResult> Unpin(Guid id)
+    {
+        var peers = await _messageService.UnpinAsync(CurrentUserId, id);
+        await NotifyPinsChangedAsync(id, peers, pinned: false);
+        return NoContent();
+    }
+
+    private Task NotifyPinsChangedAsync(Guid messageId, (Guid SenderId, Guid ReceiverId) peers, bool pinned) =>
+        _hub.Clients.Users(PeerUserIds(peers)).SendAsync("PinsChanged", new
+        {
+            messageId,
+            pinned,
+            by = CurrentUserId,
+            senderId = peers.SenderId,
+            receiverId = peers.ReceiverId
+        });
 
     [HttpPost("{id:guid}/reactions")]
     public async Task<IActionResult> AddReaction(Guid id, [FromBody] ReactionRequest req)

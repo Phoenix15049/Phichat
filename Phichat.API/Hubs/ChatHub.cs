@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Phichat.Application.DTOs.Message;
 using Phichat.Application.Interfaces;
@@ -18,12 +18,14 @@ public class ChatHub : Hub
     private readonly IMessageService _messageService;
     private readonly IUserService _userService;
     private readonly PresenceTracker _presence;
+    private readonly IBlockService _blocks;
 
-    public ChatHub(IMessageService messageService, IUserService userService, PresenceTracker presence)
+    public ChatHub(IMessageService messageService, IUserService userService, PresenceTracker presence, IBlockService blocks)
     {
         _messageService = messageService;
         _userService = userService;
         _presence = presence;
+        _blocks = blocks;
     }
 
     public class SimpleMessageDto
@@ -140,19 +142,28 @@ public class ChatHub : Hub
         });
     }
 
-    public Task StartTyping(Guid receiverId) =>
-        Clients.User(receiverId.ToString()).SendAsync("UserTyping", new
-        {
-            SenderId = CurrentUserId.ToString(),
-            At = DateTime.UtcNow.ToString("o")
-        });
+    public async Task StartTyping(Guid receiverId)
+    {
+        // Blocked pairs do not see each other typing (silently dropped).
+        if (await _blocks.IsBlockedEitherWayAsync(CurrentUserId, receiverId)) return;
 
-    public Task StopTyping(Guid receiverId) =>
-        Clients.User(receiverId.ToString()).SendAsync("UserStoppedTyping", new
+        await Clients.User(receiverId.ToString()).SendAsync("UserTyping", new
         {
             SenderId = CurrentUserId.ToString(),
             At = DateTime.UtcNow.ToString("o")
         });
+    }
+
+    public async Task StopTyping(Guid receiverId)
+    {
+        if (await _blocks.IsBlockedEitherWayAsync(CurrentUserId, receiverId)) return;
+
+        await Clients.User(receiverId.ToString()).SendAsync("UserStoppedTyping", new
+        {
+            SenderId = CurrentUserId.ToString(),
+            At = DateTime.UtcNow.ToString("o")
+        });
+    }
 
     /// <summary>Online users among the caller's conversation partners and contacts.</summary>
     public async Task<string[]> GetOnlineUsers()

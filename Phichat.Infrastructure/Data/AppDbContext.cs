@@ -19,6 +19,8 @@ public class AppDbContext : DbContext
     public DbSet<MessageReaction> MessageReactions => Set<MessageReaction>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<UserIdentityKey> UserIdentityKeys => Set<UserIdentityKey>();
+    public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
+    public DbSet<PinnedMessage> PinnedMessages => Set<PinnedMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -135,6 +137,32 @@ public class AppDbContext : DbContext
             entity.HasOne(x => x.User)
                   .WithMany()
                   .HasForeignKey(x => x.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserBlock>(entity =>
+        {
+            entity.HasKey(x => new { x.BlockerId, x.BlockedId });
+            entity.HasIndex(x => x.BlockedId);
+
+            entity.HasOne(x => x.Blocker)
+                  .WithMany()
+                  .HasForeignKey(x => x.BlockerId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Blocked)
+                  .WithMany()
+                  .HasForeignKey(x => x.BlockedId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PinnedMessage>(entity =>
+        {
+            entity.HasKey(x => x.MessageId);
+
+            entity.HasOne(x => x.Message)
+                  .WithOne()
+                  .HasForeignKey<PinnedMessage>(x => x.MessageId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
     }

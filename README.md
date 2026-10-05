@@ -188,6 +188,25 @@ dotnet run --project Phichat.API
 
 The API will start on the configured application URL.
 
+## Pins, Blocking and Link Previews
+
+-   **Pinned messages** are shared by both participants of a conversation
+    (`GET /api/messages/pinned/{peerId}`, `POST|DELETE /api/messages/{id}/pin`,
+    hub event `PinsChanged`). Only the message id is stored; content stays
+    encrypted.
+-   **Blocking** (`GET /api/users/blocked`, `POST|DELETE /api/users/{id}/block`)
+    stops messages, reactions, pins and typing between the two users and
+    hides presence and last seen both ways. The blocked user gets a neutral
+    `cannot_message_user` error; the blocker gets `user_blocked`.
+-   **Link previews** (`POST /api/link-preview` with `{ "url": ... }`) fetch
+    Open Graph metadata for the sender's client, which puts the preview inside
+    the encrypted message so recipients never contact the site. Requests are
+    SSRF-guarded: http(s) on ports 80/443 only, every connection checked
+    against public addresses after DNS resolution (private, loopback,
+    link-local/metadata, CGNAT, NAT64/6to4 refused), redirects re-validated,
+    size and time limits, per-user rate limit. The URL is sent in the body so
+    it does not appear in request logs.
+
 ## Real-Time Communication
 
 PhiChat uses SignalR for:
