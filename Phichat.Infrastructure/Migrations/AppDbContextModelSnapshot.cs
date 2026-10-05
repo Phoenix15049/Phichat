@@ -174,6 +174,22 @@ namespace Phichat.Infrastructure.Migrations
                     b.ToTable("PhoneVerifications");
                 });
 
+            modelBuilder.Entity("Phichat.Domain.Entities.PinnedMessage", b =>
+                {
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("PinnedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("PinnedById")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("MessageId");
+
+                    b.ToTable("PinnedMessages");
+                });
+
             modelBuilder.Entity("Phichat.Domain.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -262,6 +278,24 @@ namespace Phichat.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("Phichat.Domain.Entities.UserBlock", b =>
+                {
+                    b.Property<Guid>("BlockerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BlockedId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("BlockerId", "BlockedId");
+
+                    b.HasIndex("BlockedId");
+
+                    b.ToTable("UserBlocks");
                 });
 
             modelBuilder.Entity("Phichat.Domain.Entities.UserIdentityKey", b =>
@@ -369,6 +403,17 @@ namespace Phichat.Infrastructure.Migrations
                     b.Navigation("Owner");
                 });
 
+            modelBuilder.Entity("Phichat.Domain.Entities.PinnedMessage", b =>
+                {
+                    b.HasOne("Message", "Message")
+                        .WithOne()
+                        .HasForeignKey("Phichat.Domain.Entities.PinnedMessage", "MessageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Message");
+                });
+
             modelBuilder.Entity("Phichat.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("Phichat.Domain.Entities.User", "User")
@@ -378,6 +423,25 @@ namespace Phichat.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Phichat.Domain.Entities.UserBlock", b =>
+                {
+                    b.HasOne("Phichat.Domain.Entities.User", "Blocked")
+                        .WithMany()
+                        .HasForeignKey("BlockedId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Phichat.Domain.Entities.User", "Blocker")
+                        .WithMany()
+                        .HasForeignKey("BlockerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Blocked");
+
+                    b.Navigation("Blocker");
                 });
 
             modelBuilder.Entity("Phichat.Domain.Entities.UserIdentityKey", b =>

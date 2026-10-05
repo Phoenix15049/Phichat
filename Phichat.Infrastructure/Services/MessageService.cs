@@ -11,11 +11,13 @@ public class MessageService : IMessageService
 {
     private readonly AppDbContext _context;
     private readonly IIdentityKeyService _identityKeys;
+    private readonly IBlockService _blocks;
 
-    public MessageService(AppDbContext context, IIdentityKeyService identityKeys)
+    public MessageService(AppDbContext context, IIdentityKeyService identityKeys, IBlockService blocks)
     {
         _context = context;
         _identityKeys = identityKeys;
+        _blocks = blocks;
     }
 
     public async Task<Message> SendMessageAsync(Guid senderId, SendMessageRequest request)
@@ -25,6 +27,7 @@ public class MessageService : IMessageService
             throw new BadRequestException("invalid_message", "Message is empty or too large.");
 
         await EnsureReceiverExistsAsync(request.ReceiverId);
+        await _blocks.EnsureCanMessageAsync(senderId, request.ReceiverId);
         await _identityKeys.EnsureMessageKeysAsync(senderId, request.ReceiverId, request.EncryptedText);
         await EnsureReplyTargetAsync(senderId, request.ReceiverId, request.ReplyToMessageId);
 
@@ -60,6 +63,7 @@ public class MessageService : IMessageService
             throw new BadRequestException("invalid_message", "Message is empty or too large.");
 
         await EnsureReceiverExistsAsync(request.ReceiverId);
+        await _blocks.EnsureCanMessageAsync(senderId, request.ReceiverId);
         // The file key travels inside the encrypted text, so the text is always required here.
         await _identityKeys.EnsureMessageKeysAsync(senderId, request.ReceiverId, request.EncryptedText);
         await EnsureReplyTargetAsync(senderId, request.ReceiverId, request.ReplyToMessageId);
@@ -251,6 +255,7 @@ public class MessageService : IMessageService
         if (string.IsNullOrEmpty(encryptedText) || encryptedText.Length > ValidationRules.EncryptedTextMaxLength)
             throw new BadRequestException("invalid_message", "Message is empty or too large.");
 
+        await _blocks.EnsureCanMessageAsync(userId, m.ReceiverId);
         await _identityKeys.EnsureMessageKeysAsync(userId, m.ReceiverId, encryptedText);
 
         m.EncryptedContent = encryptedText;
@@ -358,6 +363,77 @@ public class MessageService : IMessageService
         return await CountReactionsAsync(messageId, emoji);
     }
 
+    // ---- pins ----
+
+    public const int MaxPinsPerConversation = 50;
+
+    public async Task<(Guid SenderId, Guid ReceiverId)> PinAsync(Guid userId, Guid messageId)
+    {
+        var m = await VisibleMessageAsync(userId, messageId);
+        var peerId = m.SenderId == userId ? m.ReceiverId : m.SenderId;
+        await _blocks.EnsureCanMessageAsync(userId, peerId);
+
+        if (await _context.PinnedMessages.AnyAsync(p => p.MessageId == messageId))
+            return (m.SenderId, m.ReceiverId);
+
+        var pinsInConversation = await _context.PinnedMessages.CountAsync(p =>
+            (p.Message.SenderId == m.SenderId && p.Message.ReceiverId == m.ReceiverId) ||
+            (p.Message.SenderId == m.ReceiverId && p.Message.ReceiverId == m.SenderId));
+        if (pinsInConversation >= MaxPinsPerConversation)
+            throw new BadRequestException("too_many_pins", $"A conversation can have at most {MaxPinsPerConversation} pinned messages.");
+
+        _context.PinnedMessages.Add(new PinnedMessage { MessageId = messageId, PinnedById = userId, PinnedAtUtc = DateTime.UtcNow });
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Pinned concurrently by the other participant: same result.
+        }
+        return (m.SenderId, m.ReceiverId);
+    }
+
+    public async Task<(Guid SenderId, Guid ReceiverId)> UnpinAsync(Guid userId, Guid messageId)
+    {
+        var m = await _context.Messages.AsNoTracking()
+            .Where(x => x.Id == messageId && (x.SenderId == userId || x.ReceiverId == userId))
+            .Select(x => new { x.SenderId, x.ReceiverId })
+            .FirstOrDefaultAsync() ?? throw MessageNotFound();
+
+        await _context.PinnedMessages.Where(p => p.MessageId == messageId).ExecuteDeleteAsync();
+        return (m.SenderId, m.ReceiverId);
+    }
+
+    public Task<List<PinnedMessageDto>> GetPinnedAsync(Guid userId, Guid peerId) =>
+        _context.PinnedMessages.AsNoTracking()
+            .Where(p => (p.Message.SenderId == userId && p.Message.ReceiverId == peerId) ||
+                        (p.Message.SenderId == peerId && p.Message.ReceiverId == userId))
+            .Where(p => !p.Message.IsDeleted)
+            .Where(p => !_context.MessageHides.Any(h => h.UserId == userId && h.MessageId == p.MessageId))
+            .OrderByDescending(p => p.PinnedAtUtc)
+            .Select(p => new PinnedMessageDto
+            {
+                MessageId = p.MessageId,
+                SenderId = p.Message.SenderId,
+                EncryptedContent = p.Message.EncryptedContent,
+                FileUrl = p.Message.FileUrl,
+                SentAt = p.Message.SentAt,
+                PinnedById = p.PinnedById,
+                PinnedAtUtc = p.PinnedAtUtc
+            })
+            .ToListAsync();
+
+    /// <summary>A message of the user's conversations that is not deleted or hidden for them.</summary>
+    private async Task<Message> VisibleMessageAsync(Guid userId, Guid messageId)
+    {
+        var m = await _context.Messages.AsNoTracking()
+            .Where(x => x.Id == messageId && (x.SenderId == userId || x.ReceiverId == userId) && !x.IsDeleted)
+            .Where(x => !_context.MessageHides.Any(h => h.UserId == userId && h.MessageId == x.Id))
+            .FirstOrDefaultAsync();
+        return m ?? throw MessageNotFound();
+    }
+
     // ---- helpers ----
 
     private sealed record ForwardSource(Guid MessageId, Guid OriginalSenderId, string? FileUrl);
@@ -418,6 +494,9 @@ public class MessageService : IMessageService
 
         if (m == null || (m.SenderId != userId && m.ReceiverId != userId) || m.IsDeleted)
             throw MessageNotFound();
+
+        var peerId = m.SenderId == userId ? m.ReceiverId : m.SenderId;
+        await _blocks.EnsureCanMessageAsync(userId, peerId);
     }
 
     private Task<int> CountReactionsAsync(Guid messageId, string emoji) =>

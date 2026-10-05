@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Phichat.Application.Common.Exceptions;
 using Phichat.Application.DTOs.User;
@@ -94,6 +94,14 @@ public class UserService : IUserService
             .ToListAsync();
 
         related.Remove(userId);
+
+        // Blocked pairs (either way) share no presence or last seen.
+        var blocked = await _context.UserBlocks
+            .Where(b => b.BlockerId == userId || b.BlockedId == userId)
+            .Select(b => b.BlockerId == userId ? b.BlockedId : b.BlockerId)
+            .ToListAsync();
+        related.RemoveAll(blocked.Contains);
+
         return related;
     }
 

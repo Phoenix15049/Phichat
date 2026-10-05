@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.SignalR;
+using Phichat.API.Hubs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -15,10 +17,58 @@ public class UsersController : ControllerBase
     private const long MaxAvatarBytes = 10_000_000;
 
     private readonly IUserService _userService;
+    private readonly IBlockService _blocks;
+    private readonly IHubContext<ChatHub> _hub;
+    private readonly PresenceTracker _presence;
 
-    public UsersController(IUserService userService)
+    public UsersController(IUserService userService, IBlockService blocks, IHubContext<ChatHub> hub, PresenceTracker presence)
     {
         _userService = userService;
+        _blocks = blocks;
+        _hub = hub;
+        _presence = presence;
+    }
+
+    // ---------- blocking ----------
+
+    [HttpGet("blocked")]
+    public async Task<IActionResult> GetBlocked()
+    {
+        return Ok(await _blocks.GetBlockedAsync(CurrentUserId));
+    }
+
+    /// <summary>
+    /// Blocks a user. Both sides immediately see each other as offline; the blocked user is not told.
+    /// </summary>
+    [HttpPost("{id:guid}/block")]
+    public async Task<IActionResult> Block(Guid id)
+    {
+        var me = CurrentUserId;
+        await _blocks.BlockAsync(me, id);
+
+        var at = DateTime.UtcNow.ToString("o");
+        await _hub.Clients.User(id.ToString()).SendAsync("UserOffline", me.ToString(), at);
+        await _hub.Clients.User(me.ToString()).SendAsync("UserOffline", id.ToString(), at);
+        await _hub.Clients.User(me.ToString()).SendAsync("BlockListChanged", new { userId = id, blocked = true });
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}/block")]
+    public async Task<IActionResult> Unblock(Guid id)
+    {
+        var me = CurrentUserId;
+        await _blocks.UnblockAsync(me, id);
+
+        // Presence resumes right away when they are still related and not blocked the other way.
+        if (!await _blocks.IsBlockedEitherWayAsync(me, id))
+        {
+            var at = DateTime.UtcNow.ToString("o");
+            if (_presence.IsOnline(id)) await _hub.Clients.User(me.ToString()).SendAsync("UserOnline", id.ToString(), at);
+            if (_presence.IsOnline(me)) await _hub.Clients.User(id.ToString()).SendAsync("UserOnline", me.ToString(), at);
+        }
+
+        await _hub.Clients.User(me.ToString()).SendAsync("BlockListChanged", new { userId = id, blocked = false });
+        return NoContent();
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -28,6 +78,7 @@ public class UsersController : ControllerBase
     {
         var user = await _userService.GetUserByIdAsync(id);
         if (user == null) return NotFound();
+        if (await _blocks.IsBlockedEitherWayAsync(CurrentUserId, id)) user.LastSeenUtc = null;
         return Ok(user);
     }
 
@@ -37,6 +88,7 @@ public class UsersController : ControllerBase
     {
         var profile = await _userService.GetProfileByUsernameAsync(username);
         if (profile == null) return NotFound();
+        if (await _blocks.IsBlockedEitherWayAsync(CurrentUserId, profile.Id)) profile.LastSeenUtc = null;
         return Ok(profile);
     }
 

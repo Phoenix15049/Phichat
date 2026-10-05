@@ -1,4 +1,4 @@
-using Phichat.Application.DTOs.Message;
+﻿using Phichat.Application.DTOs.Message;
 
 public interface IMessageService
 {
@@ -21,4 +21,12 @@ public interface IMessageService
 
     /// <summary>Removes the reaction and returns the new count for that emoji.</summary>
     Task<int> RemoveReactionAsync(Guid userId, Guid messageId, string emoji);
+
+    /// <summary>Pins a message in its conversation; returns the two participants to notify.</summary>
+    Task<(Guid SenderId, Guid ReceiverId)> PinAsync(Guid userId, Guid messageId);
+
+    Task<(Guid SenderId, Guid ReceiverId)> UnpinAsync(Guid userId, Guid messageId);
+
+    /// <summary>Pinned messages of the conversation with <paramref name="peerId"/>, newest pin first.</summary>
+    Task<List<PinnedMessageDto>> GetPinnedAsync(Guid userId, Guid peerId);
 }

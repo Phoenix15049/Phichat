@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Threading.RateLimiting;
 using FluentValidation;
 using FluentValidation.AspNetCore;
@@ -15,6 +15,7 @@ using Phichat.API.Middleware;
 using Phichat.API.Security;
 using Phichat.Application.Interfaces;
 using Phichat.Infrastructure.Data;
+using Phichat.Infrastructure.LinkPreview;
 using Phichat.Infrastructure.Security;
 using Phichat.Infrastructure.Services;
 using Serilog;
@@ -90,6 +91,9 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
 builder.Services.AddScoped<IIdentityKeyService, IdentityKeyService>();
+builder.Services.AddScoped<IBlockService, BlockService>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ILinkPreviewService, LinkPreviewService>();
 builder.Services.AddScoped<IContactService, ContactService>();
 builder.Services.AddSingleton<PresenceTracker>();
 
@@ -176,6 +180,16 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy(RateLimitPolicies.Sms, context => PerIp(context, 5, TimeSpan.FromMinutes(15)));
     options.AddPolicy(RateLimitPolicies.Refresh, context => PerIp(context, 30, TimeSpan.FromMinutes(1)));
     options.AddPolicy(RateLimitPolicies.Lookup, context => PerIp(context, 30, TimeSpan.FromMinutes(1)));
+
+    options.AddPolicy(RateLimitPolicies.LinkPreview, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? ClientIp(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 
     options.AddPolicy(RateLimitPolicies.Upload, context =>
         RateLimitPartition.GetFixedWindowLimiter(
