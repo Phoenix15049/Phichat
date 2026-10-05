@@ -89,7 +89,7 @@ builder.Services.AddScoped<ISmsCodeService, SmsCodeService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
-builder.Services.AddScoped<IChatKeyService, ChatKeyService>();
+builder.Services.AddScoped<IIdentityKeyService, IdentityKeyService>();
 builder.Services.AddScoped<IContactService, ContactService>();
 builder.Services.AddSingleton<PresenceTracker>();
 

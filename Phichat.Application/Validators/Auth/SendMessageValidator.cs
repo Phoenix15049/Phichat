@@ -16,7 +16,7 @@ public class SendMessageWithFileRequestValidator : AbstractValidator<SendMessage
     public SendMessageWithFileRequestValidator()
     {
         RuleFor(x => x.ReceiverId).NotEmpty();
-        RuleFor(x => x.EncryptedText).MaximumLength(ValidationRules.EncryptedTextMaxLength);
+        RuleFor(x => x.EncryptedText).NotEmpty().MaximumLength(ValidationRules.EncryptedTextMaxLength);
         RuleFor(x => x.File).NotNull().WithMessage("File is required.");
     }
 }

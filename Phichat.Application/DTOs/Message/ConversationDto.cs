@@ -7,6 +7,7 @@ public class ConversationDto
     public string? PeerDisplayName { get; set; }
     public string? PeerAvatarUrl { get; set; }
 
+    public Guid LastSenderId { get; set; }
     public string? LastEncryptedContent { get; set; }
     public string? LastFileUrl { get; set; }
     public DateTime LastSentAt { get; set; }
