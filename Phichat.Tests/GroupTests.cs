@@ -310,6 +310,20 @@ public class GroupTests : IDisposable
     }
 
     [Fact]
+    public async Task Notes_to_self_are_never_unread()
+    {
+        var key = _keyIds[_alice];
+        await _messages.SendMessageAsync(_alice, new SendMessageRequest
+        {
+            ReceiverId = _alice,
+            EncryptedText = $"v2:{key}:{key}:{Convert.ToBase64String(new byte[40])}"
+        });
+
+        var saved = (await _messages.GetConversationsAsync(_alice)).Single(c => c.PeerId == _alice);
+        Assert.Equal(0, saved.UnreadCount);
+    }
+
+    [Fact]
     public async Task Member_keys_are_only_given_to_members()
     {
         var group = await CreateAsync(_bob);

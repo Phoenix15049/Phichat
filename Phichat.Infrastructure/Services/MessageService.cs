@@ -180,7 +180,8 @@ public class MessageService : IMessageService
             {
                 PeerId = g.Key,
                 Last = g.OrderByDescending(x => x.Msg.SentAt).FirstOrDefault()!.Msg,
-                Unread = g.Count(x => x.Msg.ReceiverId == currentUserId && !x.Msg.IsRead)
+                // Notes to oneself (Saved Messages) are never unread.
+                Unread = g.Count(x => x.Msg.ReceiverId == currentUserId && x.Msg.SenderId != currentUserId && !x.Msg.IsRead)
             })
             .ToListAsync();
 
