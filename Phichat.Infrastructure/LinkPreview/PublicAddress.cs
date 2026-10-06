@@ -5,10 +5,41 @@ namespace Phichat.Infrastructure.LinkPreview;
 
 /// <summary>
 /// Decides whether the server may connect to an address on a user's behalf. Only public unicast
-/// addresses qualify, so link previews cannot reach the server itself or the internal network (SSRF).
+/// addresses qualify, so link previews and push deliveries cannot reach the server itself or the internal network (SSRF).
 /// </summary>
 public static class PublicAddress
 {
+    /// <summary>
+    /// <see cref="SocketsHttpHandler.ConnectCallback"/> that resolves the host and connects only to an allowed
+    /// (public) address, so DNS rebinding cannot slip past an earlier check.
+    /// </summary>
+    public static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken ct)
+    {
+        var host = context.DnsEndPoint.Host;
+        var addresses = IPAddress.TryParse(host, out var literal)
+            ? new[] { literal }
+            : await Dns.GetHostAddressesAsync(host, ct);
+
+        var target = addresses.FirstOrDefault(IsAllowed)
+            ?? throw new HttpRequestException("Destination address is not allowed.");
+
+        // Every resolved address must be public: a host mixing public and private records is refused.
+        if (addresses.Any(a => !IsAllowed(a)))
+            throw new HttpRequestException("Destination address is not allowed.");
+
+        var socket = new Socket(target.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            await socket.ConnectAsync(target, context.DnsEndPoint.Port, ct);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
+
     public static bool IsAllowed(IPAddress address)
     {
         if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();

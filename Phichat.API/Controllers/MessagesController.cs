@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.SignalR;
 using Phichat.API.Hubs;
 using Phichat.API.Security;
 using Phichat.Application.DTOs.Message;
+using Phichat.Application.Interfaces;
 using System.Security.Claims;
 
 [ApiController]
@@ -15,12 +16,16 @@ public class MessagesController : ControllerBase
     public const long MaxFileBytes = 50_000_000;
 
     private readonly IMessageService _messageService;
+    private readonly IGroupService _groups;
     private readonly IHubContext<ChatHub> _hub;
+    private readonly IPushNotifier _push;
 
-    public MessagesController(IMessageService messageService, IHubContext<ChatHub> hub)
+    public MessagesController(IMessageService messageService, IGroupService groups, IHubContext<ChatHub> hub, IPushNotifier push)
     {
         _messageService = messageService;
+        _groups = groups;
         _hub = hub;
+        _push = push;
     }
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -36,24 +41,38 @@ public class MessagesController : ControllerBase
 
         var saved = await _messageService.SendMessageWithFileAsync(userId, request, uploadPath);
 
-        await _hub.Clients.User(request.ReceiverId.ToString()).SendAsync("ReceiveMessage", new
+        var payload = new
         {
             clientId,
             id = saved.Id,
             senderId = saved.SenderId,
             receiverId = saved.ReceiverId,
+            groupId = saved.GroupId,
             encryptedContent = saved.EncryptedContent,
             fileUrl = saved.FileUrl,
             sentAt = saved.SentAt,
             replyToMessageId = saved.ReplyToMessageId,
             forwardedFromMessageId = saved.ForwardedFromMessageId,
             forwardedFromSenderId = saved.ForwardedFromSenderId
-        });
+        };
+
+        if (saved.GroupId is { } groupId)
+        {
+            var others = (await _groups.GetMemberIdsAsync(groupId)).Where(id => id != userId).ToList();
+            await _hub.Clients.Users(ToUserIds(others)).SendAsync("ReceiveMessage", payload);
+            foreach (var member in others) _push.NewMessage(member, userId, chatId: groupId);
+        }
+        else
+        {
+            await _hub.Clients.User(request.ReceiverId.ToString()).SendAsync("ReceiveMessage", payload);
+            _push.NewMessage(request.ReceiverId, userId, chatId: userId);
+        }
 
         await _hub.Clients.User(userId.ToString()).SendAsync("Delivered", new
         {
             clientId,
             messageId = saved.Id,
+            groupId = saved.GroupId,
             sentAt = saved.SentAt,
             deliveredAtUtc = saved.DeliveredAtUtc ?? DateTime.UtcNow,
             encryptedText = saved.EncryptedContent,
@@ -73,24 +92,32 @@ public class MessagesController : ControllerBase
     [HttpGet("with-paged/{userId:guid}")]
     public async Task<IActionResult> GetWithPaged(Guid userId, [FromQuery] string? beforeId = null, [FromQuery] int pageSize = 50)
     {
-        Guid? anchor = null;
-        if (!string.IsNullOrWhiteSpace(beforeId) && Guid.TryParse(beforeId, out var g)) anchor = g;
-
-        var result = await _messageService.GetConversationPageAsync(CurrentUserId, userId, anchor, pageSize);
+        var result = await _messageService.GetConversationPageAsync(CurrentUserId, userId, ParseAnchor(beforeId), pageSize);
         return Ok(result);
     }
+
+    [HttpGet("group/{groupId:guid}/paged")]
+    public async Task<IActionResult> GetGroupPaged(Guid groupId, [FromQuery] string? beforeId = null, [FromQuery] int pageSize = 50)
+    {
+        var result = await _messageService.GetGroupPageAsync(CurrentUserId, groupId, ParseAnchor(beforeId), pageSize);
+        return Ok(result);
+    }
+
+    private static Guid? ParseAnchor(string? beforeId) =>
+        !string.IsNullOrWhiteSpace(beforeId) && Guid.TryParse(beforeId, out var g) ? g : null;
 
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Edit(Guid id, [FromBody] EditMessageRequest dto)
     {
         var res = await _messageService.EditMessageAsync(CurrentUserId, id, dto.EncryptedText);
 
-        var peers = await _messageService.GetPeerIdsForMessageAsync(id);
-        if (peers != null)
+        var audience = await _messageService.GetAudienceAsync(id);
+        if (audience != null)
         {
-            await _hub.Clients.Users(PeerUserIds(peers.Value)).SendAsync("MessageEdited", new
+            await _hub.Clients.Users(ToUserIds(audience.UserIds)).SendAsync("MessageEdited", new
             {
                 messageId = id,
+                groupId = audience.GroupId,
                 encryptedContent = res.EncryptedContent,
                 updatedAtUtc = res.UpdatedAtUtc
             });
@@ -108,10 +135,10 @@ public class MessagesController : ControllerBase
 
         if (scope == "all")
         {
-            var peers = await _messageService.GetPeerIdsForMessageAsync(id);
-            if (peers != null)
+            var audience = await _messageService.GetAudienceAsync(id);
+            if (audience != null)
             {
-                await _hub.Clients.Users(PeerUserIds(peers.Value)).SendAsync("MessageDeleted", new
+                await _hub.Clients.Users(ToUserIds(audience.UserIds)).SendAsync("MessageDeleted", new
                 {
                     messageId = id,
                     scope = "all"
@@ -136,30 +163,37 @@ public class MessagesController : ControllerBase
         return Ok(await _messageService.GetPinnedAsync(CurrentUserId, peerId));
     }
 
+    [HttpGet("group/{groupId:guid}/pinned")]
+    public async Task<IActionResult> GetGroupPinned(Guid groupId)
+    {
+        return Ok(await _messageService.GetGroupPinnedAsync(CurrentUserId, groupId));
+    }
+
     [HttpPost("{id:guid}/pin")]
     public async Task<IActionResult> Pin(Guid id)
     {
-        var peers = await _messageService.PinAsync(CurrentUserId, id);
-        await NotifyPinsChangedAsync(id, peers, pinned: true);
+        var audience = await _messageService.PinAsync(CurrentUserId, id);
+        await NotifyPinsChangedAsync(id, audience, pinned: true);
         return NoContent();
     }
 
     [HttpDelete("{id:guid}/pin")]
     public async Task<IActionResult> Unpin(Guid id)
     {
-        var peers = await _messageService.UnpinAsync(CurrentUserId, id);
-        await NotifyPinsChangedAsync(id, peers, pinned: false);
+        var audience = await _messageService.UnpinAsync(CurrentUserId, id);
+        await NotifyPinsChangedAsync(id, audience, pinned: false);
         return NoContent();
     }
 
-    private Task NotifyPinsChangedAsync(Guid messageId, (Guid SenderId, Guid ReceiverId) peers, bool pinned) =>
-        _hub.Clients.Users(PeerUserIds(peers)).SendAsync("PinsChanged", new
+    private Task NotifyPinsChangedAsync(Guid messageId, MessageAudience audience, bool pinned) =>
+        _hub.Clients.Users(ToUserIds(audience.UserIds)).SendAsync("PinsChanged", new
         {
             messageId,
             pinned,
             by = CurrentUserId,
-            senderId = peers.SenderId,
-            receiverId = peers.ReceiverId
+            senderId = audience.SenderId,
+            receiverId = audience.ReceiverId,
+            groupId = audience.GroupId
         });
 
     [HttpPost("{id:guid}/reactions")]
@@ -189,10 +223,10 @@ public class MessagesController : ControllerBase
 
     private async Task BroadcastReactionAsync(Guid messageId, string emoji, int count, Guid userId, string action)
     {
-        var peers = await _messageService.GetPeerIdsForMessageAsync(messageId);
-        if (peers == null) return;
+        var audience = await _messageService.GetAudienceAsync(messageId);
+        if (audience == null) return;
 
-        await _hub.Clients.Users(PeerUserIds(peers.Value)).SendAsync("ReactionUpdated", new
+        await _hub.Clients.Users(ToUserIds(audience.UserIds)).SendAsync("ReactionUpdated", new
         {
             messageId,
             emoji,
@@ -202,6 +236,6 @@ public class MessagesController : ControllerBase
         });
     }
 
-    private static List<string> PeerUserIds((Guid SenderId, Guid ReceiverId) peers) =>
-        new() { peers.SenderId.ToString(), peers.ReceiverId.ToString() };
+    private static List<string> ToUserIds(IEnumerable<Guid> ids) =>
+        ids.Select(id => id.ToString()).ToList();
 }

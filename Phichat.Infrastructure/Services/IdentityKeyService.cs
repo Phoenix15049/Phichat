@@ -118,6 +118,25 @@ public class IdentityKeyService : IIdentityKeyService
             throw new ConflictException("recipient_key_changed", "The recipient's encryption key changed. The message must be encrypted again.");
     }
 
+    public async Task EnsureGroupMessageKeysAsync(Guid senderId, IReadOnlyCollection<Guid> memberIds, string encryptedText)
+    {
+        if (!EncryptedMessageFormat.TryParseGroup(encryptedText, out var senderKeyId, out var recipientKeyIds))
+            throw new BadRequestException("invalid_encryption", "Messages must be end-to-end encrypted.");
+
+        var active = await _db.UserIdentityKeys.AsNoTracking()
+            .Where(k => memberIds.Contains(k.UserId) && k.RevokedAtUtc == null)
+            .Select(k => new { k.UserId, k.KeyId })
+            .ToListAsync();
+
+        var senderKey = active.FirstOrDefault(k => k.UserId == senderId)?.KeyId;
+        if (senderKey == null || senderKey != senderKeyId)
+            throw new ConflictException("sender_key_outdated", "Your encryption key changed on another device. Reload and try again.");
+
+        // Every current member (with a key) and nobody else must be able to read it.
+        if (!active.Select(k => k.KeyId).ToHashSet(StringComparer.Ordinal).SetEquals(recipientKeyIds))
+            throw new ConflictException("group_keys_changed", "The group's members or their keys changed. The message must be encrypted again.");
+    }
+
     // ---- helpers ----
 
     private IQueryable<UserIdentityKey> ActiveKeys(Guid userId) =>

@@ -4,7 +4,11 @@ public class ReceivedMessageResponse
 {
     public Guid MessageId { get; set; }
     public Guid SenderId { get; set; }
-    public Guid ReceiverId { get; set; }
+    public Guid? ReceiverId { get; set; }
+    public Guid? GroupId { get; set; }
+
+    /// <summary>Group service message (JSON), e.g. a member was added; no encrypted content.</summary>
+    public string? SystemEvent { get; set; }
     public string EncryptedContent { get; set; } = string.Empty;
     public DateTime SentAt { get; set; }
     public DateTime? DeliveredAtUtc { get; set; }

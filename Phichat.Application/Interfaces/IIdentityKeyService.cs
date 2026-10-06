@@ -28,4 +28,10 @@ public interface IIdentityKeyService
     /// the receiver's active keys, so a stale client re-encrypts instead of sending unreadable data.
     /// </summary>
     Task EnsureMessageKeysAsync(Guid senderId, Guid receiverId, string encryptedText);
+
+    /// <summary>
+    /// Checks that a group message is a well-formed <c>g1</c> body from the sender's current key, wrapped
+    /// for exactly the current keys of <paramref name="memberIds"/> (members without a key are skipped).
+    /// </summary>
+    Task EnsureGroupMessageKeysAsync(Guid senderId, IReadOnlyCollection<Guid> memberIds, string encryptedText);
 }

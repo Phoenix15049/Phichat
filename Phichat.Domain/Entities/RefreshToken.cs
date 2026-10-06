@@ -18,6 +18,11 @@ public class RefreshToken
     /// <summary>Hash of the token that replaced this one during rotation, if any.</summary>
     public string? ReplacedByTokenHash { get; set; }
 
+    // Session details shown in "Active sessions"; copied to each rotated token of the family.
+    public DateTime SessionStartedAtUtc { get; set; }
+    public string? DeviceName { get; set; }
+    public string? IpAddress { get; set; }
+
     public User User { get; set; } = default!;
 
     public bool IsActive(DateTime utcNow) => RevokedAtUtc == null && ExpiresAtUtc > utcNow;

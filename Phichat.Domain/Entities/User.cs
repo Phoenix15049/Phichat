@@ -13,4 +13,17 @@ public class User
 
     public string? PhoneNumber { get; set; }   //like +98912...
     public bool PhoneVerified { get; set; } = false;
+
+    /// <summary>Who may see this user's online status and last seen time.</summary>
+    public PrivacyLevel LastSeenVisibility { get; set; } = PrivacyLevel.Everyone;
+
+    /// <summary>When off, read receipts are neither sent nor shown in private chats.</summary>
+    public bool ReadReceiptsEnabled { get; set; } = true;
+}
+
+public enum PrivacyLevel
+{
+    Everyone = 0,
+    Contacts = 1,
+    Nobody = 2
 }

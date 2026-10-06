@@ -21,6 +21,10 @@ public class AppDbContext : DbContext
     public DbSet<UserIdentityKey> UserIdentityKeys => Set<UserIdentityKey>();
     public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
     public DbSet<PinnedMessage> PinnedMessages => Set<PinnedMessage>();
+    public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+    public DbSet<ChatMute> ChatMutes => Set<ChatMute>();
+    public DbSet<Group> Groups => Set<Group>();
+    public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -106,6 +110,8 @@ public class AppDbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.Property(x => x.TokenHash).IsRequired().HasMaxLength(64);
             entity.Property(x => x.ReplacedByTokenHash).HasMaxLength(64);
+            entity.Property(x => x.DeviceName).HasMaxLength(128);
+            entity.Property(x => x.IpAddress).HasMaxLength(45);
             entity.HasIndex(x => x.TokenHash).IsUnique();
             entity.HasIndex(x => x.FamilyId);
             entity.HasIndex(x => new { x.UserId, x.ExpiresAtUtc });
@@ -163,6 +169,71 @@ public class AppDbContext : DbContext
             entity.HasOne(x => x.Message)
                   .WithOne()
                   .HasForeignKey<PinnedMessage>(x => x.MessageId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PushSubscription>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Endpoint).IsRequired().HasMaxLength(2048);
+            entity.Property(x => x.EndpointHash).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.P256dh).IsRequired().HasMaxLength(128);
+            entity.Property(x => x.Auth).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.Lang).IsRequired().HasMaxLength(8);
+
+            entity.HasIndex(x => x.EndpointHash).IsUnique();
+            entity.HasIndex(x => x.UserId);
+            entity.HasIndex(x => x.SessionId);
+
+            entity.HasOne(x => x.User)
+                  .WithMany()
+                  .HasForeignKey(x => x.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Group>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Title).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.Description).HasMaxLength(255);
+            entity.Property(x => x.AvatarUrl).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<GroupMember>(entity =>
+        {
+            entity.HasKey(x => new { x.GroupId, x.UserId });
+            entity.HasIndex(x => x.UserId);
+
+            entity.HasOne(x => x.Group)
+                  .WithMany()
+                  .HasForeignKey(x => x.GroupId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.User)
+                  .WithMany()
+                  .HasForeignKey(x => x.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Message>(entity =>
+        {
+            entity.Property(x => x.SystemEvent).HasMaxLength(2048);
+            entity.HasIndex(x => new { x.GroupId, x.SentAt });
+
+            // Group messages are deleted with the group (by the group service, together with their reactions and pins).
+            entity.HasOne<Group>()
+                  .WithMany()
+                  .HasForeignKey(x => x.GroupId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ChatMute>(entity =>
+        {
+            entity.HasKey(x => new { x.UserId, x.ChatId });
+
+            entity.HasOne<User>()
+                  .WithMany()
+                  .HasForeignKey(x => x.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
     }

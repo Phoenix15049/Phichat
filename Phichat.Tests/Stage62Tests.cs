@@ -111,7 +111,7 @@ public sealed class BlockAndPinTests : IDisposable
 
         _blocks = new BlockService(_db);
         _keys = new IdentityKeyService(_db);
-        _messages = new MessageService(_db, _keys, _blocks);
+        _messages = new MessageService(_db, _keys, _blocks, new PrivacyService(_db, new UserService(_db)));
     }
 
     public void Dispose()

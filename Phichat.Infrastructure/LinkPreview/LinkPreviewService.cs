@@ -43,7 +43,7 @@ public sealed partial class LinkPreviewService : ILinkPreviewService, IDisposabl
             PooledConnectionLifetime = TimeSpan.FromMinutes(2),
             UseCookies = false,
             UseProxy = false,
-            ConnectCallback = ConnectToPublicAddressAsync
+            ConnectCallback = PublicAddress.ConnectAsync
         };
 
         _http = new HttpClient(handler) { Timeout = RequestTimeout };
@@ -52,34 +52,6 @@ public sealed partial class LinkPreviewService : ILinkPreviewService, IDisposabl
     }
 
     public void Dispose() => _http.Dispose();
-
-    /// <summary>Resolves the host and connects only to an allowed (public) address.</summary>
-    private static async ValueTask<Stream> ConnectToPublicAddressAsync(SocketsHttpConnectionContext context, CancellationToken ct)
-    {
-        var host = context.DnsEndPoint.Host;
-        var addresses = IPAddress.TryParse(host, out var literal)
-            ? new[] { literal }
-            : await Dns.GetHostAddressesAsync(host, ct);
-
-        var target = addresses.FirstOrDefault(PublicAddress.IsAllowed)
-            ?? throw new HttpRequestException("Destination address is not allowed.");
-
-        // Every resolved address must be public: a host mixing public and private records is refused.
-        if (addresses.Any(a => !PublicAddress.IsAllowed(a)))
-            throw new HttpRequestException("Destination address is not allowed.");
-
-        var socket = new Socket(target.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-        try
-        {
-            await socket.ConnectAsync(target, context.DnsEndPoint.Port, ct);
-            return new NetworkStream(socket, ownsSocket: true);
-        }
-        catch
-        {
-            socket.Dispose();
-            throw;
-        }
-    }
 
     /// <summary>Only absolute http(s) URLs on the default ports, without credentials.</summary>
     public static Uri? NormalizeUrl(string? raw)

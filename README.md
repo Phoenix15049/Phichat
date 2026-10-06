@@ -171,6 +171,17 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" "<connection-strin
 Uploaded files (`Phichat.API/Uploads`, `Phichat.API/wwwroot/uploads`) and logs
 are runtime data and are ignored by git; the folders are created on startup.
 
+Web Push needs a VAPID key pair. Without configuration the API generates one on
+first start and keeps it in `Phichat.API/App_Data/vapid-keys.json` (ignored by
+git). In production set it explicitly - replacing it invalidates every browser
+subscription:
+
+| Setting | Environment variable |
+|---|---|
+| `Push:VapidPublicKey` (base64url, 65-byte P-256 point) | `Push__VapidPublicKey` |
+| `Push:VapidPrivateKey` (base64url, 32 bytes) | `Push__VapidPrivateKey` |
+| `Push:Subject` (`mailto:` or `https:` contact for push services) | `Push__Subject` |
+
 ### Database Migration
 
 Run from the repository root (the design-time factory reads the same
@@ -207,6 +218,56 @@ The API will start on the configured application URL.
     size and time limits, per-user rate limit. The URL is sent in the body so
     it does not appear in request logs.
 
+## Groups
+
+Groups (`/api/groups`) have one owner, admins and members (at most 200).
+Admins rename the group, change its photo and add or remove members; the
+owner also promotes admins and can delete the group. An owner who leaves hands
+the group to the longest-serving admin (or member); the last member leaving
+deletes it. Membership changes are written into the chat as service messages
+(`Message.SystemEvent`, JSON, not encrypted - the server knows the members
+anyway).
+
+Group messages are end-to-end encrypted with the same identity keys:
+
+    g1:{senderKeyId}:{keyId}.{wrappedKey},...:{base64(iv || ciphertext || tag)}
+
+The content is encrypted once with a random AES-256-GCM message key, which is
+wrapped for every member with the pairwise ECDH key of the sender and that
+member (HKDF label `phichat/v2/group-key-wrap`). The server only checks that the
+body is wrapped for exactly the current members' active keys
+(`group_keys_changed` otherwise, and the client re-encrypts). Additional data
+binds the content to the group and sender key, and each wrapped key to the
+group, both key ids and a hash of the content, so a member who knows a message
+key cannot alter another member's message. Members only receive messages sent
+after they joined. Read state is a per-member position (`MarkGroupRead`, event
+`GroupRead`); a message shows as read once any other member has read it.
+
+## Privacy, Sessions and Notifications
+
+-   **Last seen** (`GET|PUT /api/settings/privacy`): everyone, my contacts or
+    nobody. Presence is mutual - two users see each other's online status and
+    last seen only when both settings allow it (and neither blocked the other).
+    Hidden users are reported as `lastSeenHidden` ("last seen recently").
+-   **Read receipts** in private chats flow only while both users have them on;
+    the read state is still recorded for unread counts.
+-   **Active sessions** (`GET /api/sessions`, `DELETE /api/sessions/{id}`,
+    `DELETE /api/sessions/others`): one session per refresh-token family; access
+    tokens carry it as the `sid` claim. Ending a session revokes its refresh
+    tokens, rejects its access tokens at once (an in-memory revocation list -
+    move it to a shared store when running several API instances), removes its
+    push subscriptions and tells its open pages (`SessionTerminated`) to sign out.
+-   **Muted chats** (`GET /api/settings/mutes`, `PUT|DELETE /api/settings/mutes/{chatId}`)
+    are shared by the user's devices.
+-   **Web Push** (`/api/push`): browsers subscribe with the VAPID key; new
+    messages are pushed (RFC 8291 encryption, VAPID signing, implemented with
+    .NET crypto) only to devices without a live connection, and never contain
+    message text - only the sender or group name. Endpoints must belong to a
+    known browser push service and connections are checked like link previews.
+
+Request lines (`Microsoft.AspNetCore.Hosting.Diagnostics`) are not logged: the
+hub's WebSocket URL carries the access token in its query string.
+
 ## Real-Time Communication
 
 PhiChat uses SignalR for:
@@ -223,7 +284,8 @@ Hub (clients pass the access token as the `access_token` query parameter):
 Events are addressed per user, so every open connection (several tabs,
 a reload, a reconnect) receives them. A user is online while at least one
 connection is open; online/offline and last-seen updates are sent only to
-related users (conversation partners and contacts).
+related users (conversation partners, contacts and members of the same groups)
+whose privacy settings allow it.
 
 ## Tests
 
@@ -234,7 +296,9 @@ dotnet test
 Unit tests live in `Phichat.Tests` (presence tracking, password hashing,
 upload file-name sanitizing and image signature checks, identity-key
 validation and key-id compatibility with WebCrypto, the encrypted message
-format, and the identity-key service against SQLite).
+formats, the identity-key service against SQLite, pins and blocking, privacy
+rules, sessions, mutes, Web Push encryption (RFC 8291 test vector) and VAPID,
+and group membership, permissions, encryption checks and read state).
 
 ## API Documentation
 

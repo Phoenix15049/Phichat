@@ -16,6 +16,7 @@ using Phichat.API.Security;
 using Phichat.Application.Interfaces;
 using Phichat.Infrastructure.Data;
 using Phichat.Infrastructure.LinkPreview;
+using Phichat.Infrastructure.Push;
 using Phichat.Infrastructure.Security;
 using Phichat.Infrastructure.Services;
 using Serilog;
@@ -27,6 +28,9 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.File("Logs/log.txt", rollingInterval: RollingInterval.Day)
     .Enrich.FromLogContext()
     .MinimumLevel.Information()
+    // "Request starting/finished" lines include query strings, and the hub's WebSocket URL carries the
+    // access token (browsers cannot send headers there): keep them out of the logs.
+    .MinimumLevel.Override("Microsoft.AspNetCore.Hosting.Diagnostics", Serilog.Events.LogEventLevel.Warning)
     .CreateLogger();
 
 
@@ -35,6 +39,7 @@ Log.Logger = new LoggerConfiguration()
 var uploadsRoot = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
 Directory.CreateDirectory(uploadsRoot);
 Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "avatars"));
+Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "groups"));
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -97,6 +102,25 @@ builder.Services.AddSingleton<ILinkPreviewService, LinkPreviewService>();
 builder.Services.AddScoped<IContactService, ContactService>();
 builder.Services.AddSingleton<PresenceTracker>();
 
+// Privacy, sessions, muted chats
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IClientContext, HttpClientContext>();
+builder.Services.AddScoped<IPrivacyService, PrivacyService>();
+builder.Services.AddScoped<ISessionService, SessionService>();
+builder.Services.AddSingleton<ISessionRevocationList, SessionRevocationList>();
+builder.Services.AddScoped<IMuteService, MuteService>();
+builder.Services.AddScoped<IGroupService, GroupService>();
+
+// Web Push: keys from configuration, or generated once into App_Data (not in git).
+var pushOptions = builder.Configuration.GetSection(PushOptions.SectionName).Get<PushOptions>() ?? new PushOptions();
+builder.Services.AddSingleton(VapidKeys.Load(pushOptions, Path.Combine(builder.Environment.ContentRootPath, "App_Data", "vapid-keys.json")));
+builder.Services.AddSingleton<SessionConnections>();
+builder.Services.AddSingleton<IConnectedSessions>(sp => sp.GetRequiredService<SessionConnections>());
+builder.Services.AddSingleton<PushQueue>();
+builder.Services.AddSingleton<IPushNotifier>(sp => sp.GetRequiredService<PushQueue>());
+builder.Services.AddHostedService<PushDispatcher>();
+builder.Services.AddScoped<IPushSubscriptionService, PushSubscriptionService>();
+
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     options.UseSqlServer(connectionString);
@@ -124,6 +148,18 @@ builder.Services.AddAuthentication(options =>
             if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments(ChatHub.Path))
             {
                 context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            // A session ended from another device (or logged out) is rejected before its token expires.
+            var sid = context.Principal?.FindFirstValue(ClaimTypes.Sid);
+            if (Guid.TryParse(sid, out var sessionId) &&
+                context.HttpContext.RequestServices.GetRequiredService<ISessionRevocationList>().IsRevoked(sessionId))
+            {
+                context.Fail("This session has ended.");
             }
 
             return Task.CompletedTask;

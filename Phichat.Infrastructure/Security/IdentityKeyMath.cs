@@ -44,7 +44,7 @@ public static class IdentityKeyMath
         "05AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B", System.Globalization.NumberStyles.HexNumber);
 
     /// <summary>True when the 64-byte X||Y coordinates are a point on P-256 (and below the field prime).</summary>
-    private static bool IsOnP256Curve(ReadOnlySpan<byte> xy)
+    public static bool IsOnP256Curve(ReadOnlySpan<byte> xy)
     {
         if (xy.Length != 64) return false;
 

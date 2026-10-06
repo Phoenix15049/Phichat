@@ -32,7 +32,9 @@ public sealed class TokenService : ITokenService
 
     public TimeSpan RefreshTokenLifetime => TimeSpan.FromDays(_options.RefreshTokenDays);
 
-    public (string Token, DateTime ExpiresAtUtc) CreateAccessToken(User user)
+    public TimeSpan AccessTokenLifetime => TimeSpan.FromMinutes(_options.AccessTokenMinutes);
+
+    public (string Token, DateTime ExpiresAtUtc) CreateAccessToken(User user, Guid sessionId)
     {
         var expires = DateTime.UtcNow.AddMinutes(_options.AccessTokenMinutes);
 
@@ -41,6 +43,7 @@ public sealed class TokenService : ITokenService
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Username),
+            new Claim(ClaimTypes.Sid, sessionId.ToString()),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
         };
 
