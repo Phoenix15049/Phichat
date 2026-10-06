@@ -2,7 +2,12 @@ namespace Phichat.Application.DTOs.Message;
 
 public class SendMessageRequest
 {
+    /// <summary>The other user of a private chat (empty for a group message).</summary>
     public Guid ReceiverId { get; set; }
+
+    /// <summary>Set (instead of <see cref="ReceiverId"/>) for a group message.</summary>
+    public Guid? GroupId { get; set; }
+
     public string EncryptedText { get; set; } = string.Empty;
     public Guid? ReplyToMessageId { get; set; }
 

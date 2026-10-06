@@ -20,6 +20,18 @@ public static class ValidationRules
     /// <summary>Upper bound for an encrypted message body (base64 of IV + ciphertext).</summary>
     public const int EncryptedTextMaxLength = 64 * 1024;
 
+    /// <summary>
+    /// A group message also carries one wrapped message key per member (about 105 characters each),
+    /// so its body may be larger. The exact limit per chat type is enforced by the message service.
+    /// </summary>
+    public const int GroupEncryptedTextMaxLength = EncryptedTextMaxLength + 32 * 1024;
+
+    public const int GroupTitleMaxLength = 64;
+    public const int GroupDescriptionMaxLength = 255;
+
+    /// <summary>Members per group, including the owner (bounded by the per-member message keys).</summary>
+    public const int GroupMaxMembers = 200;
+
     public const int DisplayNameMaxLength = 64;
     public const int BioMaxLength = 300;
     public const int EmojiMaxLength = 16;

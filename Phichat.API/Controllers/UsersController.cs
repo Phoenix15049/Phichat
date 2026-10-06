@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.SignalR;
 using Phichat.API.Hubs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,13 +20,15 @@ public class UsersController : ControllerBase
     private readonly IBlockService _blocks;
     private readonly IHubContext<ChatHub> _hub;
     private readonly PresenceTracker _presence;
+    private readonly IPrivacyService _privacy;
 
-    public UsersController(IUserService userService, IBlockService blocks, IHubContext<ChatHub> hub, PresenceTracker presence)
+    public UsersController(IUserService userService, IBlockService blocks, IHubContext<ChatHub> hub, PresenceTracker presence, IPrivacyService privacy)
     {
         _userService = userService;
         _blocks = blocks;
         _hub = hub;
         _presence = presence;
+        _privacy = privacy;
     }
 
     // ---------- blocking ----------
@@ -59,8 +61,8 @@ public class UsersController : ControllerBase
         var me = CurrentUserId;
         await _blocks.UnblockAsync(me, id);
 
-        // Presence resumes right away when they are still related and not blocked the other way.
-        if (!await _blocks.IsBlockedEitherWayAsync(me, id))
+        // Presence resumes right away when nothing else (a block the other way, privacy settings) hides it.
+        if (await _privacy.CanSeePresenceAsync(me, id))
         {
             var at = DateTime.UtcNow.ToString("o");
             if (_presence.IsOnline(id)) await _hub.Clients.User(me.ToString()).SendAsync("UserOnline", id.ToString(), at);
@@ -78,7 +80,7 @@ public class UsersController : ControllerBase
     {
         var user = await _userService.GetUserByIdAsync(id);
         if (user == null) return NotFound();
-        if (await _blocks.IsBlockedEitherWayAsync(CurrentUserId, id)) user.LastSeenUtc = null;
+        (user.LastSeenUtc, user.LastSeenHidden) = await VisibleLastSeenAsync(id, user.LastSeenUtc);
         return Ok(user);
     }
 
@@ -88,8 +90,20 @@ public class UsersController : ControllerBase
     {
         var profile = await _userService.GetProfileByUsernameAsync(username);
         if (profile == null) return NotFound();
-        if (await _blocks.IsBlockedEitherWayAsync(CurrentUserId, profile.Id)) profile.LastSeenUtc = null;
+        (profile.LastSeenUtc, profile.LastSeenHidden) = await VisibleLastSeenAsync(profile.Id, profile.LastSeenUtc);
         return Ok(profile);
+    }
+
+    /// <summary>
+    /// Blocked pairs see no last seen at all; hidden by privacy settings it shows as "recently"
+    /// (<c>LastSeenHidden</c>), like other messengers do.
+    /// </summary>
+    private async Task<(DateTime? LastSeen, bool Hidden)> VisibleLastSeenAsync(Guid targetId, DateTime? lastSeenUtc)
+    {
+        var me = CurrentUserId;
+        if (await _blocks.IsBlockedEitherWayAsync(me, targetId)) return (null, false);
+        if (!await _privacy.CanSeePresenceAsync(me, targetId)) return (null, true);
+        return (lastSeenUtc, false);
     }
 
     [HttpGet("me")]

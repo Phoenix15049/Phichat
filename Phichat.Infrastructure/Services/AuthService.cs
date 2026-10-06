@@ -20,6 +20,8 @@ public sealed class AuthService : IAuthService
     private readonly IPasswordHasher _passwordHasher;
     private readonly ITokenService _tokens;
     private readonly ISmsCodeService _smsCodes;
+    private readonly ISessionService _sessions;
+    private readonly IClientContext _client;
     private readonly ILogger<AuthService> _logger;
 
     // Verified against when the user does not exist, so response time does not reveal valid usernames.
@@ -31,12 +33,16 @@ public sealed class AuthService : IAuthService
         IPasswordHasher passwordHasher,
         ITokenService tokens,
         ISmsCodeService smsCodes,
+        ISessionService sessions,
+        IClientContext client,
         ILogger<AuthService> logger)
     {
         _db = db;
         _passwordHasher = passwordHasher;
         _tokens = tokens;
         _smsCodes = smsCodes;
+        _sessions = sessions;
+        _client = client;
         _logger = logger;
     }
 
@@ -166,8 +172,7 @@ public sealed class AuthService : IAuthService
             if (!rotatedRecently)
             {
                 // A rotated (or revoked) token came back: assume it was stolen and end the whole session.
-                var revoked = await RevokeFamilyAsync(stored.FamilyId, now);
-                if (revoked > 0)
+                if (await _sessions.RevokeSessionAsync(stored.FamilyId))
                 {
                     _logger.LogWarning("Refresh token reuse detected for user {UserId}; session family {FamilyId} revoked",
                         stored.UserId, stored.FamilyId);
@@ -175,10 +180,10 @@ public sealed class AuthService : IAuthService
                 throw InvalidRefreshToken();
             }
 
-            return await IssueTokensAsync(stored.User, stored.FamilyId);
+            return await IssueTokensAsync(stored.User, stored.FamilyId, SessionStart(stored));
         }
 
-        var result = await IssueTokensAsync(stored.User, stored.FamilyId, saveChanges: false);
+        var result = await IssueTokensAsync(stored.User, stored.FamilyId, SessionStart(stored), saveChanges: false);
         stored.RevokedAtUtc = now;
         stored.ReplacedByTokenHash = _tokens.HashRefreshToken(result.RefreshToken);
         await _db.SaveChangesAsync();
@@ -198,8 +203,12 @@ public sealed class AuthService : IAuthService
             .FirstOrDefaultAsync();
 
         if (familyId.HasValue)
-            await RevokeFamilyAsync(familyId.Value, DateTime.UtcNow);
+            await _sessions.RevokeSessionAsync(familyId.Value);
     }
+
+    /// <summary>Tokens issued before sessions were tracked have no start time; their own creation is the best guess.</summary>
+    private static DateTime SessionStart(RefreshToken token) =>
+        token.SessionStartedAtUtc == default ? token.CreatedAtUtc : token.SessionStartedAtUtc;
 
     private async Task<AuthResult> SignInVerifiedPhoneAsync(User user)
     {
@@ -212,10 +221,12 @@ public sealed class AuthService : IAuthService
         return await IssueTokensAsync(user, familyId: null);
     }
 
-    private async Task<AuthResult> IssueTokensAsync(User user, Guid? familyId, bool saveChanges = true)
+    /// <param name="familyId">The session being continued, or null for a new sign-in.</param>
+    private async Task<AuthResult> IssueTokensAsync(User user, Guid? familyId, DateTime? sessionStartedAtUtc = null, bool saveChanges = true)
     {
         var now = DateTime.UtcNow;
-        var (accessToken, accessExpires) = _tokens.CreateAccessToken(user);
+        var sessionId = familyId ?? Guid.NewGuid();
+        var (accessToken, accessExpires) = _tokens.CreateAccessToken(user, sessionId);
 
         var refreshToken = _tokens.GenerateRefreshToken();
         var refreshExpires = now.Add(_tokens.RefreshTokenLifetime);
@@ -224,10 +235,13 @@ public sealed class AuthService : IAuthService
         {
             Id = Guid.NewGuid(),
             UserId = user.Id,
-            FamilyId = familyId ?? Guid.NewGuid(),
+            FamilyId = sessionId,
             TokenHash = _tokens.HashRefreshToken(refreshToken),
             CreatedAtUtc = now,
-            ExpiresAtUtc = refreshExpires
+            ExpiresAtUtc = refreshExpires,
+            SessionStartedAtUtc = sessionStartedAtUtc ?? now,
+            DeviceName = _client.DeviceName,
+            IpAddress = _client.IpAddress
         });
 
         if (saveChanges)
@@ -251,11 +265,6 @@ public sealed class AuthService : IAuthService
             RefreshTokenExpiresAtUtc = refreshExpires
         };
     }
-
-    private Task<int> RevokeFamilyAsync(Guid familyId, DateTime now) =>
-        _db.RefreshTokens
-            .Where(t => t.FamilyId == familyId && t.RevokedAtUtc == null)
-            .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAtUtc, now));
 
     private async Task EnsureUsernameAvailableAsync(string username)
     {

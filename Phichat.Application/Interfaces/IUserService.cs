@@ -18,7 +18,8 @@ public interface IUserService
     Task UpdateLastSeenAsync(Guid userId, DateTime utcNow);
 
     /// <summary>
-    /// Users who may see this user's presence: conversation partners and contacts (in either direction).
+    /// Users who may see this user's presence: conversation partners, contacts (in either direction)
+    /// and members of the same groups.
     /// </summary>
     Task<List<Guid>> GetRelatedUserIdsAsync(Guid userId);
 }

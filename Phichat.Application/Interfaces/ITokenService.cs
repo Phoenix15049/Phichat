@@ -4,7 +4,8 @@ namespace Phichat.Application.Interfaces;
 
 public interface ITokenService
 {
-    (string Token, DateTime ExpiresAtUtc) CreateAccessToken(User user);
+    /// <summary>An access token for <paramref name="user"/>; <paramref name="sessionId"/> becomes its "sid" claim.</summary>
+    (string Token, DateTime ExpiresAtUtc) CreateAccessToken(User user, Guid sessionId);
 
     /// <summary>Short-lived token proving the caller verified <paramref name="phoneNumber"/> by SMS.</summary>
     string CreateRegistrationToken(string phoneNumber);
@@ -18,4 +19,6 @@ public interface ITokenService
     string HashRefreshToken(string refreshToken);
 
     TimeSpan RefreshTokenLifetime { get; }
+
+    TimeSpan AccessTokenLifetime { get; }
 }

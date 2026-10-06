@@ -87,10 +87,14 @@ public class UserService : IUserService
 
     public async Task<List<Guid>> GetRelatedUserIdsAsync(Guid userId)
     {
-        var related = await _context.Messages.Where(m => m.SenderId == userId).Select(m => m.ReceiverId)
+        var myGroups = _context.GroupMembers.Where(gm => gm.UserId == userId).Select(gm => gm.GroupId);
+
+        var related = await _context.Messages.Where(m => m.SenderId == userId && m.ReceiverId != null).Select(m => m.ReceiverId!.Value)
             .Union(_context.Messages.Where(m => m.ReceiverId == userId).Select(m => m.SenderId))
             .Union(_context.Contacts.Where(c => c.OwnerId == userId).Select(c => c.ContactId))
             .Union(_context.Contacts.Where(c => c.ContactId == userId).Select(c => c.OwnerId))
+            // Members of the same groups see each other online.
+            .Union(_context.GroupMembers.Where(gm => myGroups.Contains(gm.GroupId)).Select(gm => gm.UserId))
             .ToListAsync();
 
         related.Remove(userId);

@@ -372,3 +372,6 @@ FodyWeavers.xsd
 .env
 .env.*
 !.env.example
+
+# Generated Web Push (VAPID) keys and other local app data
+App_Data/
