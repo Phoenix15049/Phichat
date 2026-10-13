@@ -200,18 +200,18 @@ public class MessagesController : ControllerBase
     public async Task<IActionResult> AddReaction(Guid id, [FromBody] ReactionRequest req)
     {
         var me = CurrentUserId;
-        var count = await _messageService.AddReactionAsync(me, id, req.Emoji);
-        await BroadcastReactionAsync(id, req.Emoji.Trim(), count, me, "added");
-        return NoContent();
+        var snapshot = await _messageService.AddReactionAsync(me, id, req.Emoji);
+        await BroadcastReactionsAsync(id, snapshot);
+        return Ok(snapshot);
     }
 
     [HttpDelete("{id:guid}/reactions")]
     public async Task<IActionResult> RemoveReaction(Guid id, [FromQuery] string emoji)
     {
         var me = CurrentUserId;
-        var count = await _messageService.RemoveReactionAsync(me, id, emoji);
-        await BroadcastReactionAsync(id, (emoji ?? "").Trim(), count, me, "removed");
-        return NoContent();
+        var snapshot = await _messageService.RemoveReactionAsync(me, id, emoji);
+        await BroadcastReactionsAsync(id, snapshot);
+        return Ok(snapshot);
     }
 
     [HttpGet("{id:guid}/brief")]
@@ -221,7 +221,8 @@ public class MessagesController : ControllerBase
         return Ok(brief);
     }
 
-    private async Task BroadcastReactionAsync(Guid messageId, string emoji, int count, Guid userId, string action)
+    /// <summary>Everyone in the chat gets the message's full reaction list (with its version).</summary>
+    private async Task BroadcastReactionsAsync(Guid messageId, ReactionSnapshot snapshot)
     {
         var audience = await _messageService.GetAudienceAsync(messageId);
         if (audience == null) return;
@@ -229,10 +230,8 @@ public class MessagesController : ControllerBase
         await _hub.Clients.Users(ToUserIds(audience.UserIds)).SendAsync("ReactionUpdated", new
         {
             messageId,
-            emoji,
-            count,
-            userId,
-            action
+            reactions = snapshot.Reactions,
+            version = snapshot.Version
         });
     }
 

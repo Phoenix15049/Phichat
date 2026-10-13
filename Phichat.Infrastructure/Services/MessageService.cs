@@ -465,43 +465,86 @@ public class MessageService : IMessageService
         return new MessageAudience(senderId, receiverId, groupId, users);
     }
 
-    public async Task<int> AddReactionAsync(Guid userId, Guid messageId, string emoji)
+    public async Task<ReactionSnapshot> AddReactionAsync(Guid userId, Guid messageId, string emoji)
     {
         emoji = emoji?.Trim() ?? "";
-        if (string.IsNullOrEmpty(emoji))
+        if (string.IsNullOrEmpty(emoji) || emoji.Length > ValidationRules.EmojiMaxLength)
             throw new BadRequestException("emoji_required", "Emoji is required.");
 
         await EnsureCanReactAsync(userId, messageId);
 
-        var exists = await _context.MessageReactions.FindAsync(messageId, userId, emoji);
-        if (exists == null)
+        // Replacing the previous reaction and adding the new one happen together, so nobody ever
+        // sees the user counted twice or not at all.
+        await using (var tx = await _context.Database.BeginTransactionAsync())
         {
-            _context.MessageReactions.Add(new MessageReaction
+            await _context.MessageReactions
+                .Where(r => r.MessageId == messageId && r.UserId == userId && r.Emoji != emoji)
+                .ExecuteDeleteAsync();
+
+            if (!await _context.MessageReactions.AnyAsync(r => r.MessageId == messageId && r.UserId == userId && r.Emoji == emoji))
             {
-                MessageId = messageId,
-                UserId = userId,
-                Emoji = emoji,
-                CreatedAt = DateTime.UtcNow
-            });
-            await _context.SaveChangesAsync();
+                _context.MessageReactions.Add(new MessageReaction
+                {
+                    MessageId = messageId,
+                    UserId = userId,
+                    Emoji = emoji,
+                    CreatedAt = DateTime.UtcNow
+                });
+                try
+                {
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateException)
+                {
+                    // The same reaction arrived twice at once (e.g. a double click): already there.
+                    _context.ChangeTracker.Clear();
+                }
+            }
+
+            await tx.CommitAsync();
         }
 
-        return await CountReactionsAsync(messageId, emoji);
+        return await ReactionSnapshotAsync(messageId);
     }
 
-    public async Task<int> RemoveReactionAsync(Guid userId, Guid messageId, string emoji)
+    public async Task<ReactionSnapshot> RemoveReactionAsync(Guid userId, Guid messageId, string emoji)
     {
         emoji = emoji?.Trim() ?? "";
         await EnsureCanReactAsync(userId, messageId);
 
-        var r = await _context.MessageReactions.FindAsync(messageId, userId, emoji);
-        if (r != null)
-        {
-            _context.MessageReactions.Remove(r);
-            await _context.SaveChangesAsync();
-        }
+        await _context.MessageReactions
+            .Where(r => r.MessageId == messageId && r.UserId == userId && r.Emoji == emoji)
+            .ExecuteDeleteAsync();
 
-        return await CountReactionsAsync(messageId, emoji);
+        return await ReactionSnapshotAsync(messageId);
+    }
+
+    /// <summary>All reactions of a message, in the order each emoji was first used.</summary>
+    private async Task<ReactionSnapshot> ReactionSnapshotAsync(Guid messageId)
+    {
+        // Taken before reading: a later snapshot always reflects at least what an earlier one did.
+        // Unix microseconds: exact as a JavaScript number (ticks would not be).
+        var version = (DateTime.UtcNow - DateTime.UnixEpoch).Ticks / 10;
+
+        var rows = await _context.MessageReactions.AsNoTracking()
+            .Where(r => r.MessageId == messageId)
+            .Select(r => new { r.Emoji, r.UserId, r.CreatedAt })
+            .ToListAsync();
+
+        return new ReactionSnapshot
+        {
+            Version = version,
+            Reactions = rows
+                .GroupBy(r => r.Emoji)
+                .OrderBy(g => g.Min(r => r.CreatedAt))
+                .Select(g => new ReactionUsersDto
+                {
+                    Emoji = g.Key,
+                    Count = g.Count(),
+                    UserIds = g.OrderBy(r => r.CreatedAt).Select(r => r.UserId).ToList()
+                })
+                .ToList()
+        };
     }
 
     // ---- pins ----
@@ -674,36 +717,31 @@ public class MessageService : IMessageService
             await _blocks.EnsureCanMessageAsync(userId, m.SenderId == userId ? m.ReceiverId!.Value : m.SenderId);
     }
 
-    private Task<int> CountReactionsAsync(Guid messageId, string emoji) =>
-        _context.MessageReactions.CountAsync(r => r.MessageId == messageId && r.Emoji == emoji);
-
     private async Task<Dictionary<Guid, List<ReactionSummaryDto>>> LoadReactionsAsync(List<Guid> msgIds, Guid currentUserId)
     {
         if (msgIds.Count == 0)
             return new Dictionary<Guid, List<ReactionSummaryDto>>();
 
-        // Reactions: total count + the user's own reactions
-        var grouped = await _context.MessageReactions
+        // Total count per emoji and whether the user is among them, in the order emojis were first used
+        // (the same order as the real-time snapshots).
+        var rows = await _context.MessageReactions.AsNoTracking()
             .Where(r => msgIds.Contains(r.MessageId))
-            .GroupBy(r => new { r.MessageId, r.Emoji })
-            .Select(g => new { g.Key.MessageId, g.Key.Emoji, Count = g.Count() })
+            .Select(r => new { r.MessageId, r.Emoji, r.UserId, r.CreatedAt })
             .ToListAsync();
 
-        var myReacts = await _context.MessageReactions
-            .Where(r => msgIds.Contains(r.MessageId) && r.UserId == currentUserId)
-            .ToListAsync();
-
-        return grouped
-            .GroupBy(x => x.MessageId)
+        return rows
+            .GroupBy(r => r.MessageId)
             .ToDictionary(
                 g => g.Key,
-                g => g.Select(x => new ReactionSummaryDto
-                {
-                    Emoji = x.Emoji,
-                    Count = x.Count,
-                    Mine = myReacts.Any(mr => mr.MessageId == x.MessageId && mr.Emoji == x.Emoji)
-                }).ToList()
-            );
+                g => g.GroupBy(r => r.Emoji)
+                    .OrderBy(e => e.Min(r => r.CreatedAt))
+                    .Select(e => new ReactionSummaryDto
+                    {
+                        Emoji = e.Key,
+                        Count = e.Count(),
+                        Mine = e.Any(r => r.UserId == currentUserId)
+                    })
+                    .ToList());
     }
 
     private static ReceivedMessageResponse ToResponse(Message m, Dictionary<Guid, List<ReactionSummaryDto>> reactions) => new()

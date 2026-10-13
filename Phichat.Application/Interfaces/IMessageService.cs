@@ -28,11 +28,14 @@ public interface IMessageService
     /// <summary>Who must hear about changes to a message: both users of a private chat, or the group's members.</summary>
     Task<MessageAudience?> GetAudienceAsync(Guid messageId);
 
-    /// <summary>Adds the reaction and returns the new count for that emoji.</summary>
-    Task<int> AddReactionAsync(Guid userId, Guid messageId, string emoji);
+    /// <summary>
+    /// Sets the user's reaction (one per user, like Telegram: another emoji replaces the previous one)
+    /// and returns all reactions of the message.
+    /// </summary>
+    Task<ReactionSnapshot> AddReactionAsync(Guid userId, Guid messageId, string emoji);
 
-    /// <summary>Removes the reaction and returns the new count for that emoji.</summary>
-    Task<int> RemoveReactionAsync(Guid userId, Guid messageId, string emoji);
+    /// <summary>Removes the user's reaction and returns all reactions of the message.</summary>
+    Task<ReactionSnapshot> RemoveReactionAsync(Guid userId, Guid messageId, string emoji);
 
     /// <summary>Pins a message in its conversation; returns who to notify.</summary>
     Task<MessageAudience> PinAsync(Guid userId, Guid messageId);

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Phichat.Application.Common.Exceptions;
 using Phichat.Application.DTOs.Group;
 using Phichat.Application.DTOs.Keys;
@@ -64,6 +65,8 @@ public class GroupTests : IDisposable
     {
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
+        // The model compares reaction emoji with SQL Server's binary collation; same meaning here.
+        _connection.CreateCollation("Latin1_General_100_BIN2", string.CompareOrdinal);
         _db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
         _db.Database.EnsureCreated();
 
@@ -307,6 +310,46 @@ public class GroupTests : IDisposable
 
         // Group co-members share presence.
         Assert.Contains(_bob, await new UserService(_db).GetRelatedUserIdsAsync(_alice));
+    }
+
+    [Fact]
+    public async Task Reactions_are_one_per_user_and_snapshots_are_complete()
+    {
+        var group = await CreateAsync(_bob, _carol);
+        var message = await SendAsync(group, _alice, _alice, _bob, _carol);
+
+        // The sender reacts to her own message, another member reacts differently.
+        var first = await _messages.AddReactionAsync(_alice, message.Id, "👍");
+        var second = await _messages.AddReactionAsync(_bob, message.Id, "❤️");
+        Assert.True(second.Version >= first.Version);
+        Assert.Equal(new[] { ("👍", 1), ("❤️", 1) }, second.Reactions.Select(r => (r.Emoji, r.Count)));
+
+        // Choosing another emoji replaces the previous one instead of adding a second.
+        var switched = await _messages.AddReactionAsync(_alice, message.Id, "❤️");
+        var heart = Assert.Single(switched.Reactions);
+        Assert.Equal(2, heart.Count);
+        Assert.Equal(new[] { _bob, _alice }, heart.UserIds);
+
+        // Repeating the same reaction changes nothing.
+        Assert.Equal(2, Assert.Single((await _messages.AddReactionAsync(_alice, message.Id, "❤️")).Reactions).Count);
+
+        await _messages.AddReactionAsync(_carol, message.Id, "🔥");
+        var removed = await _messages.RemoveReactionAsync(_bob, message.Id, "❤️");
+        Assert.Equal(new[] { ("❤️", 1), ("🔥", 1) }, removed.Reactions.Select(r => (r.Emoji, r.Count)));
+
+        // A page load shows the same counts, with "mine" per viewer.
+        var page = await _messages.GetGroupPageAsync(_carol, group, null, 50);
+        var reactions = page.Items.Single(i => i.MessageId == message.Id).Reactions;
+        Assert.Equal(new[] { ("❤️", 1, false), ("🔥", 1, true) }, reactions.Select(r => (r.Emoji, r.Count, r.Mine)));
+    }
+
+    [Fact]
+    public void Reaction_emoji_use_a_binary_collation()
+    {
+        // SQL Server's default collation compares many different emoji as equal; SQLite cannot show it.
+        var model = _db.GetService<Microsoft.EntityFrameworkCore.Metadata.IDesignTimeModel>().Model;
+        var emoji = model.FindEntityType(typeof(MessageReaction))!.FindProperty(nameof(MessageReaction.Emoji))!;
+        Assert.Equal("Latin1_General_100_BIN2", emoji.GetCollation());
     }
 
     [Fact]

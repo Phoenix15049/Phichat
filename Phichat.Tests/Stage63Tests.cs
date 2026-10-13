@@ -135,6 +135,8 @@ public class PrivacyAndSessionTests : IDisposable
     {
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
+        // The model compares reaction emoji with SQL Server's binary collation; same meaning here.
+        _connection.CreateCollation("Latin1_General_100_BIN2", string.CompareOrdinal);
         _db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
         _db.Database.EnsureCreated();
 

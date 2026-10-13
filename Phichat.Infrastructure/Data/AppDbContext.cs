@@ -102,6 +102,12 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<MessageReaction>()
         .HasKey(x => new { x.MessageId, x.UserId, x.Emoji });
 
+        // Emoji are compared byte for byte: the default SQL Server collation treats many different
+        // emoji (characters outside the BMP) as equal, which mixed up reactions and their counts.
+        modelBuilder.Entity<MessageReaction>()
+            .Property(x => x.Emoji)
+            .UseCollation("Latin1_General_100_BIN2");
+
 
         modelBuilder.Entity<MessageHide>().HasKey(x => new { x.UserId, x.MessageId });
 

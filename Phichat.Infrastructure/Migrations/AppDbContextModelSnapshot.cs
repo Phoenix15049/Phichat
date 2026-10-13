@@ -99,7 +99,8 @@ namespace Phichat.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Emoji")
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(450)")
+                        .UseCollation("Latin1_General_100_BIN2");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
