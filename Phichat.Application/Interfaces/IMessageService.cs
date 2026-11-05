@@ -23,6 +23,13 @@ public interface IMessageService
     Task<MessageBriefDto> GetBriefAsync(Guid userId, Guid messageId);
 
     Task<ReceivedMessageResponse> EditMessageAsync(Guid userId, Guid messageId, string encryptedText);
+
+    /// <summary>
+    /// Swaps a message's attachment for a new one, with the body that holds its key. Returns the
+    /// message and the old attachment if no other message uses it, to remove from storage.
+    /// </summary>
+    Task<(ReceivedMessageResponse Message, string? OrphanedFile)> ReplaceFileAsync(
+        Guid userId, Guid messageId, string encryptedText, Microsoft.AspNetCore.Http.IFormFile file, string uploadRootPath);
     /// <summary>Deletes a message; returns the attachment no other message uses any more, to remove from storage.</summary>
     Task<string?> DeleteMessageAsync(Guid userId, Guid messageId, string scope);
 

@@ -23,6 +23,27 @@ public class SetGroupRoleRequest
     public string Role { get; set; } = "member";
 }
 
+/// <summary>What ordinary members of a group may do.</summary>
+public class GroupPermissionsDto
+{
+    public bool SendMessages { get; set; }
+    public bool SendMedia { get; set; }
+    public bool PinMessages { get; set; }
+    public bool AddMembers { get; set; }
+    public bool ChangeInfo { get; set; }
+}
+
+public class UpdateGroupSettingsRequest
+{
+    public GroupPermissionsDto Permissions { get; set; } = new();
+    public int SlowModeSeconds { get; set; }
+}
+
+public class TransferGroupRequest
+{
+    public Guid UserId { get; set; }
+}
+
 public class GroupMemberDto
 {
     public Guid UserId { get; set; }
@@ -44,6 +65,41 @@ public class GroupDetailsDto
     public DateTime CreatedAtUtc { get; set; }
     public string MyRole { get; set; } = "member";
     public List<GroupMemberDto> Members { get; set; } = new();
+    public GroupPermissionsDto Permissions { get; set; } = new();
+    public int SlowModeSeconds { get; set; }
+
+    /// <summary>Only for those who may invite people.</summary>
+    public string? InviteCode { get; set; }
+    public int BannedCount { get; set; }
+}
+
+/// <summary>What someone holding an invite link sees before joining.</summary>
+public class GroupInvitePreviewDto
+{
+    public Guid GroupId { get; set; }
+    public string Title { get; set; } = default!;
+    public string? Description { get; set; }
+    public string? AvatarUrl { get; set; }
+    public int MemberCount { get; set; }
+    public bool IsMember { get; set; }
+}
+
+public class GroupBanDto
+{
+    public Guid UserId { get; set; }
+    public string Username { get; set; } = default!;
+    public string? DisplayName { get; set; }
+    public string? AvatarUrl { get; set; }
+    public DateTime BannedAtUtc { get; set; }
+}
+
+/// <summary>A group two people share.</summary>
+public class CommonGroupDto
+{
+    public Guid Id { get; set; }
+    public string Title { get; set; } = default!;
+    public string? AvatarUrl { get; set; }
+    public int MemberCount { get; set; }
 }
 
 /// <summary>A member's current identity key, for encrypting a group message.</summary>

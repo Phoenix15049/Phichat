@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -68,8 +69,14 @@ public sealed class GroupService : IGroupService
             })
             .ToListAsync();
 
+        var mayInvite = me.Role != GroupRole.Member || group.MemberPermissions.HasFlag(GroupPermissions.AddMembers);
+
         return new GroupDetailsDto
         {
+            Permissions = ToDto(group.MemberPermissions),
+            SlowModeSeconds = group.SlowModeSeconds,
+            InviteCode = mayInvite ? group.InviteCode : null,
+            BannedCount = me.Role == GroupRole.Member ? 0 : await _db.GroupBans.CountAsync(b => b.GroupId == groupId),
             Id = group.Id,
             Title = group.Title,
             Description = group.Description,
@@ -90,7 +97,7 @@ public sealed class GroupService : IGroupService
 
     public async Task<GroupChangeResult> UpdateAsync(Guid userId, Guid groupId, UpdateGroupRequest request)
     {
-        await EnsureAdminAsync(userId, groupId);
+        await EnsureCanChangeInfoAsync(userId, groupId);
         var group = await _db.Groups.FirstAsync(g => g.Id == groupId);
 
         var title = CleanTitle(request.Title);
@@ -111,7 +118,7 @@ public sealed class GroupService : IGroupService
 
     public async Task<GroupChangeResult> SetAvatarAsync(Guid userId, Guid groupId, string? avatarUrl)
     {
-        await EnsureAdminAsync(userId, groupId);
+        await EnsureCanChangeInfoAsync(userId, groupId);
 
         if (avatarUrl != null && !Regex.IsMatch(avatarUrl, $@"^/uploads/groups/{groupId}/[0-9]{{17}}\.(jpe?g|png|webp|gif)$", RegexOptions.IgnoreCase))
             throw new BadRequestException("invalid_avatar_url", "The group photo must be uploaded to this group.");
@@ -131,15 +138,164 @@ public sealed class GroupService : IGroupService
             throw new ForbiddenException("not_group_admin", "Only group admins can do this.");
     }
 
-    public async Task<GroupChangeResult> AddMembersAsync(Guid userId, Guid groupId, IReadOnlyCollection<Guid> userIds)
+    public async Task EnsureCanChangeInfoAsync(Guid userId, Guid groupId) =>
+        await EnsureAllowedAsync(userId, groupId, GroupPermissions.ChangeInfo);
+
+    public async Task<GroupChangeResult> UpdateSettingsAsync(Guid userId, Guid groupId, UpdateGroupSettingsRequest request)
     {
         await EnsureAdminAsync(userId, groupId);
+
+        if (request.SlowModeSeconds < 0 || request.SlowModeSeconds > ValidationRules.GroupMaxSlowModeSeconds)
+            throw new BadRequestException("invalid_slow_mode", "The slow mode delay is out of range.");
+
+        var group = await _db.Groups.FirstAsync(g => g.Id == groupId);
+        var permissions = FromDto(request.Permissions);
+
+        Message? message = null;
+        if (group.SlowModeSeconds != request.SlowModeSeconds)
+            message = SystemMessage(groupId, userId, DateTime.UtcNow, new { type = "slowMode", seconds = request.SlowModeSeconds });
+        else if (group.MemberPermissions != permissions)
+            message = SystemMessage(groupId, userId, DateTime.UtcNow, new { type = "permissions" });
+
+        group.MemberPermissions = permissions;
+        group.SlowModeSeconds = request.SlowModeSeconds;
+        await _db.SaveChangesAsync();
+
+        return await ResultAsync(groupId, message);
+    }
+
+    public async Task<GroupChangeResult> TransferOwnershipAsync(Guid userId, Guid groupId, Guid newOwnerId)
+    {
+        var me = await _db.GroupMembers.FirstOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == userId)
+            ?? throw GroupNotFound();
+        if (me.Role != GroupRole.Owner)
+            throw new ForbiddenException("not_group_owner", "Only the group owner can hand the group over.");
+        if (newOwnerId == userId) return await ResultAsync(groupId, null);
+
+        var target = await _db.GroupMembers.FirstOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == newOwnerId)
+            ?? throw new NotFoundException("not_group_member", "This user is not in the group.");
+
+        me.Role = GroupRole.Admin;
+        target.Role = GroupRole.Owner;
+        var message = SystemMessage(groupId, userId, DateTime.UtcNow, new { type = "owner", users = new[] { newOwnerId } });
+        await _db.SaveChangesAsync();
+
+        return await ResultAsync(groupId, message);
+    }
+
+    public async Task<GroupChangeResult> ResetInviteAsync(Guid userId, Guid groupId)
+    {
+        await EnsureAdminAsync(userId, groupId);
+
+        var group = await _db.Groups.FirstAsync(g => g.Id == groupId);
+        group.InviteCode = NewInviteCode();
+        await _db.SaveChangesAsync();
+
+        return await ResultAsync(groupId, null);
+    }
+
+    public async Task<GroupChangeResult> RevokeInviteAsync(Guid userId, Guid groupId)
+    {
+        await EnsureAdminAsync(userId, groupId);
+
+        var group = await _db.Groups.FirstAsync(g => g.Id == groupId);
+        group.InviteCode = null;
+        await _db.SaveChangesAsync();
+
+        return await ResultAsync(groupId, null);
+    }
+
+    public async Task<GroupInvitePreviewDto> GetInvitePreviewAsync(Guid userId, string code)
+    {
+        var group = await GroupOfInviteAsync(code);
+
+        return new GroupInvitePreviewDto
+        {
+            GroupId = group.Id,
+            Title = group.Title,
+            Description = group.Description,
+            AvatarUrl = group.AvatarUrl,
+            MemberCount = await _db.GroupMembers.CountAsync(gm => gm.GroupId == group.Id),
+            IsMember = await IsMemberAsync(userId, group.Id)
+        };
+    }
+
+    public async Task<GroupChangeResult> JoinByInviteAsync(Guid userId, string code)
+    {
+        var group = await GroupOfInviteAsync(code);
+
+        var current = await GetMemberIdsAsync(group.Id);
+        if (current.Contains(userId)) return await ResultAsync(group.Id, null);
+        if (current.Count + 1 > ValidationRules.GroupMaxMembers) throw TooManyMembers();
+
+        if (await _db.GroupBans.AnyAsync(b => b.GroupId == group.Id && b.UserId == userId))
+            throw new ForbiddenException("group_banned", "You were removed from this group.");
+
+        var now = DateTime.UtcNow;
+        _db.GroupMembers.Add(new GroupMember { GroupId = group.Id, UserId = userId, Role = GroupRole.Member, JoinedAtUtc = now });
+        var message = SystemMessage(group.Id, userId, now, new { type = "joined" });
+        await _db.SaveChangesAsync();
+
+        return await ResultAsync(group.Id, message);
+    }
+
+    public async Task<List<GroupBanDto>> GetBansAsync(Guid userId, Guid groupId)
+    {
+        await EnsureAdminAsync(userId, groupId);
+
+        return await _db.GroupBans.AsNoTracking()
+            .Where(b => b.GroupId == groupId)
+            .OrderByDescending(b => b.BannedAtUtc)
+            .Select(b => new GroupBanDto
+            {
+                UserId = b.UserId,
+                Username = b.User.Username,
+                DisplayName = b.User.DisplayName,
+                AvatarUrl = b.User.AvatarUrl,
+                BannedAtUtc = b.BannedAtUtc
+            })
+            .ToListAsync();
+    }
+
+    public async Task<GroupChangeResult> UnbanAsync(Guid userId, Guid groupId, Guid bannedId)
+    {
+        await EnsureAdminAsync(userId, groupId);
+        await _db.GroupBans.Where(b => b.GroupId == groupId && b.UserId == bannedId).ExecuteDeleteAsync();
+        return await ResultAsync(groupId, null);
+    }
+
+    public async Task<List<CommonGroupDto>> GetCommonAsync(Guid userId, Guid otherId)
+    {
+        var mine = _db.GroupMembers.Where(gm => gm.UserId == userId).Select(gm => gm.GroupId);
+
+        return await _db.GroupMembers.AsNoTracking()
+            .Where(gm => gm.UserId == otherId && mine.Contains(gm.GroupId))
+            .OrderBy(gm => gm.Group.Title)
+            .Select(gm => new CommonGroupDto
+            {
+                Id = gm.GroupId,
+                Title = gm.Group.Title,
+                AvatarUrl = gm.Group.AvatarUrl,
+                MemberCount = _db.GroupMembers.Count(x => x.GroupId == gm.GroupId)
+            })
+            .ToListAsync();
+    }
+
+    public async Task<GroupChangeResult> AddMembersAsync(Guid userId, Guid groupId, IReadOnlyCollection<Guid> userIds)
+    {
+        var me = await EnsureAllowedAsync(userId, groupId, GroupPermissions.AddMembers);
 
         var current = await GetMemberIdsAsync(groupId);
         var added = userIds.Distinct().Where(id => !current.Contains(id)).ToList();
         if (added.Count == 0) return await ResultAsync(groupId, null);
         if (current.Count + added.Count > ValidationRules.GroupMaxMembers) throw TooManyMembers();
         await EnsureCanAddAsync(userId, added);
+
+        // Bringing back someone who was removed is the admins' decision, and clears the removal.
+        var banned = await _db.GroupBans.Where(b => b.GroupId == groupId && added.Contains(b.UserId)).ToListAsync();
+        if (banned.Count > 0 && me.Role == GroupRole.Member)
+            throw new ForbiddenException("cannot_add_user", "This user cannot be added to the group.");
+        _db.GroupBans.RemoveRange(banned);
 
         var now = DateTime.UtcNow;
         foreach (var id in added)
@@ -165,6 +321,7 @@ public sealed class GroupService : IGroupService
         if (!allowed) throw new ForbiddenException("not_group_admin", "You cannot remove this member.");
 
         _db.GroupMembers.Remove(target);
+        _db.GroupBans.Add(new GroupBan { GroupId = groupId, UserId = memberId, BannedById = userId, BannedAtUtc = DateTime.UtcNow });
         var message = SystemMessage(groupId, userId, DateTime.UtcNow, new { type = "removed", users = new[] { memberId } });
         await _db.SaveChangesAsync();
         await _db.ChatMutes.Where(m => m.UserId == memberId && m.ChatId == groupId).ExecuteDeleteAsync();
@@ -268,6 +425,7 @@ public sealed class GroupService : IGroupService
             .ExecuteUpdateAsync(s => s.SetProperty(m => m.ReplyToMessageId, (Guid?)null));
         await messages.ExecuteDeleteAsync();
         await _db.ChatMutes.Where(m => m.ChatId == groupId).ExecuteDeleteAsync();
+        await _db.GroupBans.Where(b => b.GroupId == groupId).ExecuteDeleteAsync();
         await _db.GroupMembers.Where(gm => gm.GroupId == groupId).ExecuteDeleteAsync();
         await _db.Groups.Where(g => g.Id == groupId).ExecuteDeleteAsync();
         await tx.CommitAsync();
@@ -301,6 +459,49 @@ public sealed class GroupService : IGroupService
         };
         _db.Messages.Add(message);
         return message;
+    }
+
+    /// <summary>Admins may do everything; a member only what the group allows.</summary>
+    private async Task<GroupMember> EnsureAllowedAsync(Guid userId, Guid groupId, GroupPermissions permission)
+    {
+        var me = await RequireMemberAsync(userId, groupId);
+        if (me.Role != GroupRole.Member) return me;
+
+        var allowed = await _db.Groups.Where(g => g.Id == groupId).Select(g => g.MemberPermissions).FirstAsync();
+        if (!allowed.HasFlag(permission))
+            throw new ForbiddenException("not_group_admin", "Only group admins can do this.");
+        return me;
+    }
+
+    private async Task<Group> GroupOfInviteAsync(string code) =>
+        await _db.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.InviteCode == code)
+        ?? throw new NotFoundException("invite_not_found", "This invite link is not valid any more.");
+
+    /// <summary>128 random bits in URL-safe text: a link cannot be guessed.</summary>
+    private static string NewInviteCode() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(16)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static GroupPermissionsDto ToDto(GroupPermissions value) => new()
+    {
+        SendMessages = value.HasFlag(GroupPermissions.SendMessages),
+        SendMedia = value.HasFlag(GroupPermissions.SendMedia),
+        PinMessages = value.HasFlag(GroupPermissions.PinMessages),
+        AddMembers = value.HasFlag(GroupPermissions.AddMembers),
+        ChangeInfo = value.HasFlag(GroupPermissions.ChangeInfo)
+    };
+
+    private static GroupPermissions FromDto(GroupPermissionsDto? value)
+    {
+        if (value == null) return GroupPermissions.Default;
+
+        var result = GroupPermissions.None;
+        if (value.SendMessages) result |= GroupPermissions.SendMessages;
+        // Sending media is a kind of sending: it cannot stay on when messages are off.
+        if (value.SendMessages && value.SendMedia) result |= GroupPermissions.SendMedia;
+        if (value.PinMessages) result |= GroupPermissions.PinMessages;
+        if (value.AddMembers) result |= GroupPermissions.AddMembers;
+        if (value.ChangeInfo) result |= GroupPermissions.ChangeInfo;
+        return result;
     }
 
     private async Task<GroupMember> RequireMemberAsync(Guid userId, Guid groupId) =>

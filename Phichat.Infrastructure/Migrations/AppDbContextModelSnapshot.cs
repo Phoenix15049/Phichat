@@ -171,6 +171,16 @@ namespace Phichat.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<string>("InviteCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<int>("MemberPermissions")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SlowModeSeconds")
+                        .HasColumnType("int");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -178,7 +188,32 @@ namespace Phichat.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("InviteCode")
+                        .IsUnique()
+                        .HasFilter("[InviteCode] IS NOT NULL");
+
                     b.ToTable("Groups");
+                });
+
+            modelBuilder.Entity("Phichat.Domain.Entities.GroupBan", b =>
+                {
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("BannedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("BannedById")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("GroupId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("GroupBans");
                 });
 
             modelBuilder.Entity("Phichat.Domain.Entities.GroupMember", b =>
@@ -566,6 +601,23 @@ namespace Phichat.Infrastructure.Migrations
                     b.Navigation("ContactUser");
 
                     b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("Phichat.Domain.Entities.GroupBan", b =>
+                {
+                    b.HasOne("Phichat.Domain.Entities.Group", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Phichat.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Phichat.Domain.Entities.GroupMember", b =>

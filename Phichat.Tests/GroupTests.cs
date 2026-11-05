@@ -246,6 +246,241 @@ public class GroupTests : IDisposable
         Assert.Empty(_db.MessageReactions);
     }
 
+    private static GroupPermissionsDto Allow(bool send = true, bool media = true, bool pin = true, bool add = false, bool info = false) =>
+        new() { SendMessages = send, SendMedia = media, PinMessages = pin, AddMembers = add, ChangeInfo = info };
+
+    private Task SetRulesAsync(Guid group, GroupPermissionsDto permissions, int slowMode = 0) =>
+        _groups.UpdateSettingsAsync(_alice, group, new UpdateGroupSettingsRequest { Permissions = permissions, SlowModeSeconds = slowMode });
+
+    [Fact]
+    public async Task Read_only_groups_only_let_admins_write()
+    {
+        var group = await CreateAsync(_bob);
+        await SetRulesAsync(group, Allow(send: false));
+
+        var error = await Assert.ThrowsAsync<ForbiddenException>(() => SendAsync(group, _bob, _alice, _bob));
+        Assert.Equal("group_read_only", error.Code);
+        await SendAsync(group, _alice, _alice, _bob);
+
+        var details = await _groups.GetAsync(_bob, group);
+        Assert.False(details.Permissions.SendMessages);
+        Assert.False(details.Permissions.SendMedia);   // cannot stay on without messages
+    }
+
+    [Fact]
+    public async Task Slow_mode_holds_members_back_but_not_admins()
+    {
+        var group = await CreateAsync(_bob);
+        await SetRulesAsync(group, Allow(), slowMode: 60);
+
+        await SendAsync(group, _bob, _alice, _bob);
+        var error = await Assert.ThrowsAsync<ForbiddenException>(() => SendAsync(group, _bob, _alice, _bob));
+        Assert.Equal("slow_mode", error.Code);
+
+        await SendAsync(group, _alice, _alice, _bob);
+        await SendAsync(group, _alice, _alice, _bob);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => SetRulesAsync(group, Allow(), slowMode: -1));
+    }
+
+    [Fact]
+    public async Task Pinning_can_be_kept_for_admins()
+    {
+        var group = await CreateAsync(_bob);
+        var message = await SendAsync(group, _alice, _alice, _bob);
+        await SetRulesAsync(group, Allow(pin: false));
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => _messages.PinAsync(_bob, message.Id));
+        await _messages.PinAsync(_alice, message.Id);
+        await Assert.ThrowsAsync<ForbiddenException>(() => _messages.UnpinAsync(_bob, message.Id));
+    }
+
+    [Fact]
+    public async Task Members_add_people_and_edit_the_group_only_when_allowed()
+    {
+        var group = await CreateAsync(_bob);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => _groups.AddMembersAsync(_bob, group, new[] { _carol }));
+        await Assert.ThrowsAsync<ForbiddenException>(() => _groups.UpdateAsync(_bob, group, new UpdateGroupRequest { Title = "New" }));
+
+        await SetRulesAsync(group, Allow(add: true, info: true));
+        await _groups.AddMembersAsync(_bob, group, new[] { _carol });
+        await _groups.UpdateAsync(_bob, group, new UpdateGroupRequest { Title = "New" });
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => _groups.UpdateSettingsAsync(_bob, group, new UpdateGroupSettingsRequest { Permissions = Allow() }));
+    }
+
+    [Fact]
+    public async Task Invite_links_let_people_in_until_they_are_reset()
+    {
+        var group = await CreateAsync(_bob);
+        await Assert.ThrowsAsync<ForbiddenException>(() => _groups.ResetInviteAsync(_bob, group));
+
+        await _groups.ResetInviteAsync(_alice, group);
+        var code = (await _groups.GetAsync(_alice, group)).InviteCode!;
+        Assert.Null((await _groups.GetAsync(_bob, group)).InviteCode);   // members who cannot invite do not see it
+
+        var preview = await _groups.GetInvitePreviewAsync(_carol, code);
+        Assert.Equal(2, preview.MemberCount);
+        Assert.False(preview.IsMember);
+
+        var joined = await _groups.JoinByInviteAsync(_carol, code);
+        Assert.Contains(_carol, joined.MemberIds);
+        Assert.Equal("member", (await _groups.GetAsync(_carol, group)).MyRole);
+
+        await _groups.ResetInviteAsync(_alice, group);
+        await Assert.ThrowsAsync<NotFoundException>(() => _groups.JoinByInviteAsync(_dave, code));
+
+        await _groups.RevokeInviteAsync(_alice, group);
+        Assert.Null((await _groups.GetAsync(_alice, group)).InviteCode);
+    }
+
+    [Fact]
+    public async Task Removed_people_stay_out_until_an_admin_lets_them_back()
+    {
+        var group = await CreateAsync(_bob, _carol);
+        await _groups.ResetInviteAsync(_alice, group);
+        var code = (await _groups.GetAsync(_alice, group)).InviteCode!;
+
+        await _groups.RemoveMemberAsync(_alice, group, _carol);
+        var error = await Assert.ThrowsAsync<ForbiddenException>(() => _groups.JoinByInviteAsync(_carol, code));
+        Assert.Equal("group_banned", error.Code);
+        Assert.Equal(1, (await _groups.GetAsync(_alice, group)).BannedCount);
+        Assert.Equal(_carol, (await _groups.GetBansAsync(_alice, group)).Single().UserId);
+
+        // A member cannot undo an admin's removal, even where members may add people.
+        await SetRulesAsync(group, Allow(add: true));
+        await Assert.ThrowsAsync<ForbiddenException>(() => _groups.AddMembersAsync(_bob, group, new[] { _carol }));
+
+        await _groups.UnbanAsync(_alice, group, _carol);
+        await _groups.JoinByInviteAsync(_carol, code);
+        Assert.True(await _groups.IsMemberAsync(_carol, group));
+    }
+
+    [Fact]
+    public async Task Adding_someone_back_clears_their_removal()
+    {
+        var group = await CreateAsync(_bob, _carol);
+        await _groups.RemoveMemberAsync(_alice, group, _carol);
+        await _groups.AddMembersAsync(_alice, group, new[] { _carol });
+        Assert.Empty(await _groups.GetBansAsync(_alice, group));
+    }
+
+    [Fact]
+    public async Task Ownership_moves_to_a_member_and_the_old_owner_stays_as_admin()
+    {
+        var group = await CreateAsync(_bob);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => _groups.TransferOwnershipAsync(_bob, group, _bob));
+        await Assert.ThrowsAsync<NotFoundException>(() => _groups.TransferOwnershipAsync(_alice, group, _carol));
+
+        await _groups.TransferOwnershipAsync(_alice, group, _bob);
+        Assert.Equal("owner", (await _groups.GetAsync(_bob, group)).MyRole);
+        Assert.Equal("admin", (await _groups.GetAsync(_alice, group)).MyRole);
+        await Assert.ThrowsAsync<ForbiddenException>(() => _groups.DeleteAsync(_alice, group));
+    }
+
+    [Fact]
+    public async Task Common_groups_are_the_ones_both_people_are_in()
+    {
+        var shared = await CreateAsync(_bob, _carol);
+        await CreateAsync(_bob);
+
+        var common = await _groups.GetCommonAsync(_carol, _alice);
+        Assert.Equal(shared, common.Single().Id);
+        Assert.Equal(3, common.Single().MemberCount);
+    }
+
+    private static Microsoft.AspNetCore.Http.IFormFile Upload(string name) =>
+        new Microsoft.AspNetCore.Http.FormFile(new MemoryStream(new byte[] { 1, 2, 3 }), 0, 3, "file", name);
+
+    private async Task<(Message Message, string Root)> SendFileAsync(Guid group)
+    {
+        var root = Directory.CreateTempSubdirectory("phichat-test").FullName;
+        var message = await _messages.SendMessageWithFileAsync(_alice, new SendMessageWithFileRequest
+        {
+            GroupId = group,
+            EncryptedText = Body(_alice, _alice, _bob),
+            File = Upload("a.bin")
+        }, root);
+        return (message, root);
+    }
+
+    [Fact]
+    public async Task Replacing_a_file_swaps_it_and_frees_the_old_one()
+    {
+        var group = await CreateAsync(_bob);
+        var (message, root) = await SendFileAsync(group);
+        var oldUrl = message.FileUrl;
+
+        var body = Body(_alice, _alice, _bob);
+        var (edited, orphaned) = await _messages.ReplaceFileAsync(_alice, message.Id, body, Upload("b.bin"), root);
+
+        Assert.NotEqual(oldUrl, edited.FileUrl);
+        Assert.Equal(body, edited.EncryptedContent);
+        Assert.NotNull(edited.UpdatedAtUtc);
+        Assert.Equal(oldUrl, orphaned);
+    }
+
+    [Fact]
+    public async Task A_file_someone_forwarded_is_not_freed_with_the_replacement()
+    {
+        var group = await CreateAsync(_bob);
+        var (message, root) = await SendFileAsync(group);
+
+        var copy = await _messages.SendMessageAsync(_bob, new SendMessageRequest { GroupId = group, EncryptedText = Body(_bob, _alice, _bob), ForwardedFromMessageId = message.Id });
+        Assert.Equal(message.FileUrl, copy.FileUrl);
+
+        var (_, orphaned) = await _messages.ReplaceFileAsync(_alice, message.Id, Body(_alice, _alice, _bob), Upload("b.bin"), root);
+        Assert.Null(orphaned);
+
+        // The forwarded copy is not its sender's own attachment to swap.
+        await Assert.ThrowsAsync<BadRequestException>(() => _messages.ReplaceFileAsync(_bob, copy.Id, Body(_bob, _alice, _bob), Upload("c.bin"), root));
+    }
+
+    [Fact]
+    public async Task Only_the_sender_replaces_a_file_and_only_where_media_is_allowed()
+    {
+        var group = await CreateAsync(_bob);
+        var (message, root) = await SendFileAsync(group);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => _messages.ReplaceFileAsync(_bob, message.Id, Body(_bob, _alice, _bob), Upload("b.bin"), root));
+
+        var text = await SendAsync(group, _alice, _alice, _bob);
+        await Assert.ThrowsAsync<BadRequestException>(() => _messages.ReplaceFileAsync(_alice, text.Id, Body(_alice, _alice, _bob), Upload("b.bin"), root));
+
+        await _groups.SetRoleAsync(_alice, group, _bob, "admin");
+        var (bobs, _) = await SendBobFileAsync(group, root);
+        await _groups.SetRoleAsync(_alice, group, _bob, "member");
+        await SetRulesAsync(group, Allow(media: false));
+        var error = await Assert.ThrowsAsync<ForbiddenException>(() => _messages.ReplaceFileAsync(_bob, bobs.Id, Body(_bob, _alice, _bob), Upload("b.bin"), root));
+        Assert.Equal("group_no_media", error.Code);
+    }
+
+    private async Task<(Message Message, string Root)> SendBobFileAsync(Guid group, string root)
+    {
+        var message = await _messages.SendMessageWithFileAsync(_bob, new SendMessageWithFileRequest
+        {
+            GroupId = group,
+            EncryptedText = Body(_bob, _alice, _bob),
+            File = Upload("a.bin")
+        }, root);
+        return (message, root);
+    }
+
+    [Fact]
+    public async Task An_album_may_go_out_under_slow_mode_but_text_may_not_follow_it()
+    {
+        var group = await CreateAsync(_bob);
+        await SetRulesAsync(group, Allow(), slowMode: 60);
+        var root = Directory.CreateTempSubdirectory("phichat-test").FullName;
+
+        for (var i = 0; i < 3; i++) await SendBobFileAsync(group, root);
+
+        var error = await Assert.ThrowsAsync<ForbiddenException>(() => SendAsync(group, _bob, _alice, _bob));
+        Assert.Equal("slow_mode", error.Code);
+    }
+
     [Fact]
     public async Task Read_positions_drive_unread_counts_and_ticks()
     {

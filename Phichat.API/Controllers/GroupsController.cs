@@ -55,6 +55,69 @@ public class GroupsController : ControllerBase
         return NoContent();
     }
 
+    [HttpPut("{id:guid}/settings")]
+    public async Task<IActionResult> UpdateSettings(Guid id, [FromBody] UpdateGroupSettingsRequest request)
+    {
+        await PublishAsync(await _groups.UpdateSettingsAsync(CurrentUserId, id, request));
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/transfer")]
+    public async Task<IActionResult> Transfer(Guid id, [FromBody] TransferGroupRequest request)
+    {
+        await PublishAsync(await _groups.TransferOwnershipAsync(CurrentUserId, id, request.UserId));
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/invite")]
+    public async Task<IActionResult> ResetInvite(Guid id)
+    {
+        await PublishAsync(await _groups.ResetInviteAsync(CurrentUserId, id));
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}/invite")]
+    public async Task<IActionResult> RevokeInvite(Guid id)
+    {
+        await PublishAsync(await _groups.RevokeInviteAsync(CurrentUserId, id));
+        return NoContent();
+    }
+
+    [HttpGet("invite/{code}")]
+    [EnableRateLimiting(RateLimitPolicies.Lookup)]
+    public async Task<IActionResult> InvitePreview(string code)
+    {
+        return Ok(await _groups.GetInvitePreviewAsync(CurrentUserId, code));
+    }
+
+    [HttpPost("invite/{code}/join")]
+    [EnableRateLimiting(RateLimitPolicies.Lookup)]
+    public async Task<IActionResult> JoinByInvite(string code)
+    {
+        var result = await _groups.JoinByInviteAsync(CurrentUserId, code);
+        await PublishAsync(result);
+        return Ok(await _groups.GetAsync(CurrentUserId, result.GroupId));
+    }
+
+    [HttpGet("{id:guid}/bans")]
+    public async Task<IActionResult> GetBans(Guid id)
+    {
+        return Ok(await _groups.GetBansAsync(CurrentUserId, id));
+    }
+
+    [HttpDelete("{id:guid}/bans/{userId:guid}")]
+    public async Task<IActionResult> Unban(Guid id, Guid userId)
+    {
+        await PublishAsync(await _groups.UnbanAsync(CurrentUserId, id, userId));
+        return NoContent();
+    }
+
+    [HttpGet("common/{userId:guid}")]
+    public async Task<IActionResult> GetCommon(Guid userId)
+    {
+        return Ok(await _groups.GetCommonAsync(CurrentUserId, userId));
+    }
+
     [HttpPost("{id:guid}/avatar")]
     [Consumes("multipart/form-data")]
     [EnableRateLimiting(RateLimitPolicies.Upload)]
@@ -62,7 +125,7 @@ public class GroupsController : ControllerBase
     [RequestSizeLimit(MaxAvatarBytes)]
     public async Task<IActionResult> UploadAvatar(Guid id, [FromForm] AvatarUploadRequest model)
     {
-        await _groups.EnsureAdminAsync(CurrentUserId, id);
+        await _groups.EnsureCanChangeInfoAsync(CurrentUserId, id);
 
         var file = model.File;
         if (file == null || file.Length == 0)

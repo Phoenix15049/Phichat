@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<ChatMute> ChatMutes => Set<ChatMute>();
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<GroupBan> GroupBans => Set<GroupBan>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -203,6 +204,23 @@ public class AppDbContext : DbContext
             entity.Property(x => x.Title).IsRequired().HasMaxLength(64);
             entity.Property(x => x.Description).HasMaxLength(255);
             entity.Property(x => x.AvatarUrl).HasMaxLength(256);
+            entity.Property(x => x.InviteCode).HasMaxLength(32);
+            entity.HasIndex(x => x.InviteCode).IsUnique().HasFilter("[InviteCode] IS NOT NULL");
+        });
+
+        modelBuilder.Entity<GroupBan>(entity =>
+        {
+            entity.HasKey(x => new { x.GroupId, x.UserId });
+
+            entity.HasOne<Group>()
+                  .WithMany()
+                  .HasForeignKey(x => x.GroupId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.User)
+                  .WithMany()
+                  .HasForeignKey(x => x.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<GroupMember>(entity =>

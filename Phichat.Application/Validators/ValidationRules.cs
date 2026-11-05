@@ -31,6 +31,10 @@ public static class ValidationRules
 
     /// <summary>Members per group, including the owner (bounded by the per-member message keys).</summary>
     public const int GroupMaxMembers = 200;
+    public const int GroupMaxSlowModeSeconds = 3600;
+
+    /// <summary>Items of one album; the client sends them one by one.</summary>
+    public const int GroupMaxAlbumItems = 10;
 
     public const int DisplayNameMaxLength = 64;
     public const int BioMaxLength = 300;

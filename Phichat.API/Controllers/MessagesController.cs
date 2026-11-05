@@ -129,6 +129,32 @@ public class MessagesController : ControllerBase
         return Ok(res);
     }
 
+    /// <summary>Replaces a message's attachment; the new body holds the new file's key and the caption.</summary>
+    [HttpPut("{id:guid}/file")]
+    [EnableRateLimiting(RateLimitPolicies.Upload)]
+    [RequestSizeLimit(MaxFileBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaxFileBytes)]
+    public async Task<IActionResult> ReplaceFile(Guid id, [FromForm] ReplaceMessageFileRequest request)
+    {
+        var (res, orphanedFile) = await _messageService.ReplaceFileAsync(CurrentUserId, id, request.EncryptedText, request.File, UploadedFiles.Root);
+        if (orphanedFile != null) UploadedFiles.TryDelete(orphanedFile);
+
+        var audience = await _messageService.GetAudienceAsync(id);
+        if (audience != null)
+        {
+            await _hub.Clients.Users(ToUserIds(audience.UserIds)).SendAsync("MessageEdited", new
+            {
+                messageId = id,
+                groupId = audience.GroupId,
+                encryptedContent = res.EncryptedContent,
+                fileUrl = res.FileUrl,
+                updatedAtUtc = res.UpdatedAtUtc
+            });
+        }
+
+        return Ok(res);
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, [FromQuery] string scope = "me")
     {

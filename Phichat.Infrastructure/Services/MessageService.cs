@@ -42,6 +42,8 @@ public class MessageService : IMessageService
             message.FileUrl = source.FileUrl;
         }
 
+        await EnsureMayPostAsync(senderId, target, withFile: message.FileUrl != null);
+
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
         return message;
@@ -56,17 +58,10 @@ public class MessageService : IMessageService
         if (request.File == null || request.File.Length == 0)
             throw new BadRequestException("file_required", "File is required.");
 
-        // Random prefix + sanitized name: the client name is kept for display but can never escape the folder.
-        var storedName = $"{Guid.NewGuid():N}_{FileNameSanitizer.Sanitize(request.File.FileName)}";
-        var fullPath = Path.Combine(uploadRootPath, storedName);
-
-        await using (var stream = new FileStream(fullPath, FileMode.CreateNew))
-        {
-            await request.File.CopyToAsync(stream);
-        }
+        await EnsureMayPostAsync(senderId, target, withFile: true);
 
         var message = NewMessage(senderId, target, request.EncryptedText, request.ReplyToMessageId);
-        message.FileUrl = "/uploads/" + Uri.EscapeDataString(storedName);
+        message.FileUrl = await StoreFileAsync(request.File, uploadRootPath);
 
         if (request.ForwardedFromMessageId.HasValue)
         {
@@ -78,6 +73,57 @@ public class MessageService : IMessageService
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
         return message;
+    }
+
+    /// <summary>Random prefix + sanitized name: the client name is kept for display but can never escape the folder.</summary>
+    private static async Task<string> StoreFileAsync(Microsoft.AspNetCore.Http.IFormFile file, string uploadRootPath)
+    {
+        var storedName = $"{Guid.NewGuid():N}_{FileNameSanitizer.Sanitize(file.FileName)}";
+
+        await using (var stream = new FileStream(Path.Combine(uploadRootPath, storedName), FileMode.CreateNew))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        return "/uploads/" + Uri.EscapeDataString(storedName);
+    }
+
+    /// <summary>
+    /// Group rules for ordinary members: what they may send, and the slow mode. The server cannot see
+    /// inside messages, so an album counts by its size: up to a full album of files may go out at once.
+    /// </summary>
+    private async Task EnsureMayPostAsync(Guid senderId, ChatTarget target, bool withFile)
+    {
+        if (target.GroupId is not { } groupId) return;
+
+        var role = await _context.GroupMembers
+            .Where(gm => gm.GroupId == groupId && gm.UserId == senderId)
+            .Select(gm => gm.Role)
+            .FirstAsync();
+        if (role != GroupRole.Member) return;
+
+        var rules = await _context.Groups
+            .Where(g => g.Id == groupId)
+            .Select(g => new { g.MemberPermissions, g.SlowModeSeconds })
+            .FirstAsync();
+
+        if (!rules.MemberPermissions.HasFlag(GroupPermissions.SendMessages))
+            throw new ForbiddenException("group_read_only", "Only admins can send messages in this group.");
+        if (withFile && !rules.MemberPermissions.HasFlag(GroupPermissions.SendMedia))
+            throw new ForbiddenException("group_no_media", "Only admins can send media in this group.");
+
+        if (rules.SlowModeSeconds <= 0) return;
+
+        var since = DateTime.UtcNow.AddSeconds(-rules.SlowModeSeconds);
+        var recent = await _context.Messages
+            .Where(m => m.GroupId == groupId && m.SenderId == senderId && m.SystemEvent == null && m.SentAt > since)
+            .Select(m => m.FileUrl != null)
+            .ToListAsync();
+
+        var waiting = withFile
+            ? recent.Contains(false) || recent.Count >= ValidationRules.GroupMaxAlbumItems
+            : recent.Count > 0;
+        if (waiting) throw new ForbiddenException("slow_mode", "Slow mode is on: please wait before sending again.");
     }
 
     private static Message NewMessage(Guid senderId, ChatTarget target, string encryptedText, Guid? replyToMessageId)
@@ -385,6 +431,50 @@ public class MessageService : IMessageService
 
     public async Task<ReceivedMessageResponse> EditMessageAsync(Guid userId, Guid messageId, string encryptedText)
     {
+        var m = await EditableMessageAsync(userId, messageId, encryptedText);
+
+        m.EncryptedContent = encryptedText;
+        m.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        return await EditedResponseAsync(m);
+    }
+
+    public async Task<(ReceivedMessageResponse Message, string? OrphanedFile)> ReplaceFileAsync(
+        Guid userId, Guid messageId, string encryptedText, Microsoft.AspNetCore.Http.IFormFile file, string uploadRootPath)
+    {
+        var m = await EditableMessageAsync(userId, messageId, encryptedText);
+
+        if (m.FileUrl == null || m.ForwardedFromMessageId != null)
+            throw new BadRequestException("no_replaceable_file", "This message has no attachment of its own to replace.");
+        if (file == null || file.Length == 0)
+            throw new BadRequestException("file_required", "File is required.");
+
+        if (m.GroupId is { } groupId)
+        {
+            var role = await _context.GroupMembers.Where(gm => gm.GroupId == groupId && gm.UserId == userId).Select(gm => gm.Role).FirstAsync();
+            var allowed = await _context.Groups.Where(g => g.Id == groupId).Select(g => g.MemberPermissions).FirstAsync();
+            if (role == GroupRole.Member && !allowed.HasFlag(GroupPermissions.SendMedia))
+                throw new ForbiddenException("group_no_media", "Only admins can send media in this group.");
+        }
+
+        var oldUrl = m.FileUrl;
+
+        m.FileUrl = await StoreFileAsync(file, uploadRootPath);
+        m.EncryptedContent = encryptedText;
+        m.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        // A forwarded copy of the old file keeps it alive.
+        var orphaned = await _context.Messages.AnyAsync(x => x.FileUrl == oldUrl) ? null : oldUrl;
+        return (await EditedResponseAsync(m), orphaned);
+    }
+
+    /// <summary>The sender's own message, with a new body that is valid for its chat.</summary>
+    private async Task<Message> EditableMessageAsync(Guid userId, Guid messageId, string encryptedText)
+    {
         var m = await ParticipantOf(userId).FirstOrDefaultAsync(x => x.Id == messageId) ?? throw MessageNotFound();
         if (m.SenderId != userId || m.SystemEvent != null) throw new ForbiddenException("not_message_owner", "Only the sender can edit this message.");
         if (m.IsDeleted) throw new BadRequestException("message_deleted", "A deleted message cannot be edited.");
@@ -403,11 +493,11 @@ public class MessageService : IMessageService
             await _identityKeys.EnsureMessageKeysAsync(userId, m.ReceiverId.Value, encryptedText);
         }
 
-        m.EncryptedContent = encryptedText;
-        m.UpdatedAtUtc = DateTime.UtcNow;
+        return m;
+    }
 
-        await _context.SaveChangesAsync();
-
+    private async Task<ReceivedMessageResponse> EditedResponseAsync(Message m)
+    {
         var readShared = m.GroupId == null && await _privacy.ReadReceiptsSharedAsync(m.SenderId, m.ReceiverId!.Value);
         return new ReceivedMessageResponse
         {
@@ -582,6 +672,8 @@ public class MessageService : IMessageService
         if (m.SystemEvent != null) throw new BadRequestException("system_message", "Service messages cannot be pinned.");
         if (m.GroupId == null)
             await _blocks.EnsureCanMessageAsync(userId, m.SenderId == userId ? m.ReceiverId!.Value : m.SenderId);
+        else
+            await EnsureMayPinAsync(userId, m.GroupId.Value);
 
         var audience = await AudienceOfAsync(m.SenderId, m.ReceiverId, m.GroupId);
         if (await _context.PinnedMessages.AnyAsync(p => p.MessageId == messageId))
@@ -613,6 +705,8 @@ public class MessageService : IMessageService
             .Where(x => x.Id == messageId)
             .Select(x => new { x.SenderId, x.ReceiverId, x.GroupId })
             .FirstOrDefaultAsync() ?? throw MessageNotFound();
+
+        if (m.GroupId is { } groupId) await EnsureMayPinAsync(userId, groupId);
 
         await _context.PinnedMessages.Where(p => p.MessageId == messageId).ExecuteDeleteAsync();
         return await AudienceOfAsync(m.SenderId, m.ReceiverId, m.GroupId);
@@ -670,6 +764,16 @@ public class MessageService : IMessageService
     /// <summary><see cref="ParticipantOf"/> without the messages the user deleted for themselves.</summary>
     private IQueryable<Message> VisibleTo(Guid userId) =>
         ParticipantOf(userId).Where(m => !_context.MessageHides.Any(h => h.UserId == userId && h.MessageId == m.Id));
+
+    private async Task EnsureMayPinAsync(Guid userId, Guid groupId)
+    {
+        var member = await RequireMembershipAsync(groupId, userId);
+        if (member.Role != GroupRole.Member) return;
+
+        var allowed = await _context.Groups.Where(g => g.Id == groupId).Select(g => g.MemberPermissions).FirstAsync();
+        if (!allowed.HasFlag(GroupPermissions.PinMessages))
+            throw new ForbiddenException("not_group_admin", "Only group admins can do this.");
+    }
 
     private async Task<GroupMember> RequireMembershipAsync(Guid groupId, Guid userId) =>
         await _context.GroupMembers.AsNoTracking().FirstOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == userId)
