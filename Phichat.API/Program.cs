@@ -36,7 +36,7 @@ Log.Logger = new LoggerConfiguration()
 
 // Upload folders are not tracked in git, so create them on a fresh checkout.
 // wwwroot must exist before the builder is created, otherwise static files are not served from it.
-var uploadsRoot = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
+var uploadsRoot = UploadedFiles.Root;
 Directory.CreateDirectory(uploadsRoot);
 Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "avatars"));
 Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "groups"));
@@ -76,6 +76,7 @@ builder.Services.AddSignalR(options =>
     // Encrypted text messages are capped at 64 KB of base64; leave headroom for the envelope.
     options.MaximumReceiveMessageSize = 128 * 1024;
     options.AddFilter<AppExceptionHubFilter>();
+    options.AddFilter<HubRateLimitFilter>();
 });
 
 builder.Services.AddFluentValidationAutoValidation();
@@ -101,6 +102,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ILinkPreviewService, LinkPreviewService>();
 builder.Services.AddScoped<IContactService, ContactService>();
 builder.Services.AddSingleton<PresenceTracker>();
+builder.Services.AddSingleton<HubRateLimitFilter>();
 
 // Privacy, sessions, muted chats
 builder.Services.AddHttpContextAccessor();

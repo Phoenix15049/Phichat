@@ -23,7 +23,14 @@ public interface IMessageService
     Task<MessageBriefDto> GetBriefAsync(Guid userId, Guid messageId);
 
     Task<ReceivedMessageResponse> EditMessageAsync(Guid userId, Guid messageId, string encryptedText);
-    Task DeleteMessageAsync(Guid userId, Guid messageId, string scope);
+    /// <summary>Deletes a message; returns the attachment no other message uses any more, to remove from storage.</summary>
+    Task<string?> DeleteMessageAsync(Guid userId, Guid messageId, string scope);
+
+    /// <summary>
+    /// Marks the private chat with <paramref name="peerId"/> as read up to a message (older unread
+    /// ones included, even if they were never loaded). Returns that message's time, or null when nothing changed.
+    /// </summary>
+    Task<DateTime?> MarkChatReadAsync(Guid readerId, Guid peerId, Guid upToMessageId);
 
     /// <summary>Who must hear about changes to a message: both users of a private chat, or the group's members.</summary>
     Task<MessageAudience?> GetAudienceAsync(Guid messageId);

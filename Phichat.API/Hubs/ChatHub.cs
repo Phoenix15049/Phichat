@@ -58,6 +58,9 @@ public class ChatHub : Hub
         public Guid? ForwardedFromMessageId { get; set; }
     }
 
+    /// <summary>All of a user's connections; lets one device reach the user's other devices.</summary>
+    private static string UserGroup(Guid userId) => "user:" + userId;
+
     /// <summary>The authenticated user (NameIdentifier claim, which is also SignalR's user id).</summary>
     private Guid CurrentUserId => Guid.Parse(Context.UserIdentifier!);
 
@@ -69,6 +72,7 @@ public class ChatHub : Hub
     {
         var userId = CurrentUserId;
         var cameOnline = _presence.Connected(userId, Context.ConnectionId);
+        await Groups.AddToGroupAsync(Context.ConnectionId, UserGroup(userId));
 
         if (CurrentSessionId is { } sessionId)
         {
@@ -134,7 +138,9 @@ public class ChatHub : Hub
         {
             MessageId = saved.Id,
             SenderId = senderId,
+            ReceiverId = saved.ReceiverId,
             GroupId = saved.GroupId,
+            ClientId = dto.ClientId,
             EncryptedText = saved.EncryptedContent,
             FileUrl = saved.FileUrl,
             SentAt = saved.SentAt,
@@ -142,6 +148,9 @@ public class ChatHub : Hub
             ForwardedFromMessageId = saved.ForwardedFromMessageId,
             ForwardedFromSenderId = saved.ForwardedFromSenderId
         };
+
+        // The sender's other devices show what was sent from this one.
+        await Clients.OthersInGroup(UserGroup(senderId)).SendAsync("MessageSent", payload);
 
         if (saved.GroupId is { } groupId)
         {
@@ -163,9 +172,11 @@ public class ChatHub : Hub
             return;
         }
 
-        await Clients.User(dto.ReceiverId.ToString()).SendAsync("ReceiveMessage", payload);
-
-        _push.NewMessage(dto.ReceiverId, senderId, chatId: senderId);
+        if (dto.ReceiverId != senderId)
+        {
+            await Clients.User(dto.ReceiverId.ToString()).SendAsync("ReceiveMessage", payload);
+            _push.NewMessage(dto.ReceiverId, senderId, chatId: senderId);
+        }
 
         // A first message makes the two users related; share their presence right away
         // instead of waiting for the next connect.
@@ -209,6 +220,19 @@ public class ChatHub : Hub
             ReaderId = userId,
             readAtUtc = result.ReadAtUtc
         });
+    }
+
+    /// <summary>Reads a private chat up to a message; the caller's other devices and (if shared) the peer are told.</summary>
+    public async Task MarkChatRead(Guid peerId, Guid messageId)
+    {
+        var userId = CurrentUserId;
+        var readUpTo = await _messageService.MarkChatReadAsync(userId, peerId, messageId);
+        if (readUpTo == null) return;
+
+        await Clients.OthersInGroup(UserGroup(userId)).SendAsync("ChatRead", new { chatId = peerId, readerId = userId, readUpToUtc = readUpTo });
+
+        if (await _privacy.ReadReceiptsSharedAsync(userId, peerId))
+            await Clients.User(peerId.ToString()).SendAsync("ChatRead", new { chatId = userId, readerId = userId, readUpToUtc = readUpTo });
     }
 
     /// <summary>Moves the caller's read position in a group; members (and the caller's other devices) are told.</summary>

@@ -166,8 +166,11 @@ public sealed class AuthService : IAuthService
 
         if (stored.RevokedAtUtc != null)
         {
+            // The grace period only covers a session that is still alive: after a sign-out every
+            // token of the family is revoked, and an old token must not bring the session back.
             var rotatedRecently = stored.ReplacedByTokenHash != null
-                && now - stored.RevokedAtUtc.Value <= RotationGracePeriod;
+                && now - stored.RevokedAtUtc.Value <= RotationGracePeriod
+                && await _db.RefreshTokens.AnyAsync(t => t.FamilyId == stored.FamilyId && t.RevokedAtUtc == null && t.ExpiresAtUtc > now);
 
             if (!rotatedRecently)
             {

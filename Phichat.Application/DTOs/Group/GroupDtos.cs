@@ -67,4 +67,7 @@ public class GroupChangeResult
 
     /// <summary>The service message shown in the chat, if any.</summary>
     public global::Message? SystemMessage { get; set; }
+
+    /// <summary>Attachments no message uses any more (the group was deleted), to remove from storage.</summary>
+    public List<string> OrphanedFileUrls { get; set; } = new();
 }

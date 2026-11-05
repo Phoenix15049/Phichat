@@ -259,6 +259,7 @@ public sealed class GroupService : IGroupService
 
         await using var tx = await _db.Database.BeginTransactionAsync();
         var messages = _db.Messages.Where(m => m.GroupId == groupId);
+        var fileUrls = await messages.Where(m => m.FileUrl != null).Select(m => m.FileUrl!).Distinct().ToListAsync();
         await _db.PinnedMessages.Where(p => messages.Any(m => m.Id == p.MessageId)).ExecuteDeleteAsync();
         await _db.MessageReactions.Where(r => messages.Any(m => m.Id == r.MessageId)).ExecuteDeleteAsync();
         await _db.MessageHides.Where(h => messages.Any(m => m.Id == h.MessageId)).ExecuteDeleteAsync();
@@ -271,7 +272,10 @@ public sealed class GroupService : IGroupService
         await _db.Groups.Where(g => g.Id == groupId).ExecuteDeleteAsync();
         await tx.CommitAsync();
 
-        return new GroupChangeResult { GroupId = groupId, RemovedUserIds = members };
+        // A file forwarded to another chat stays.
+        var stillUsed = await _db.Messages.Where(m => m.FileUrl != null && fileUrls.Contains(m.FileUrl)).Select(m => m.FileUrl!).Distinct().ToListAsync();
+
+        return new GroupChangeResult { GroupId = groupId, RemovedUserIds = members, OrphanedFileUrls = fileUrls.Except(stillUsed).ToList() };
     }
 
     private async Task<GroupChangeResult> ResultAsync(Guid groupId, Message? message) => new()

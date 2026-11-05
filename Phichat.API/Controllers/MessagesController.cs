@@ -37,7 +37,7 @@ public class MessagesController : ControllerBase
     public async Task<IActionResult> SendMessageWithFile([FromForm] SendMessageWithFileRequest request, [FromForm] string? clientId)
     {
         var userId = CurrentUserId;
-        var uploadPath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
+        var uploadPath = UploadedFiles.Root;
 
         var saved = await _messageService.SendMessageWithFileAsync(userId, request, uploadPath);
 
@@ -62,11 +62,14 @@ public class MessagesController : ControllerBase
             await _hub.Clients.Users(ToUserIds(others)).SendAsync("ReceiveMessage", payload);
             foreach (var member in others) _push.NewMessage(member, userId, chatId: groupId);
         }
-        else
+        else if (request.ReceiverId != userId)
         {
             await _hub.Clients.User(request.ReceiverId.ToString()).SendAsync("ReceiveMessage", payload);
             _push.NewMessage(request.ReceiverId, userId, chatId: userId);
         }
+
+        // The sender's other devices show it too; the one that sent it recognizes its clientId.
+        await _hub.Clients.User(userId.ToString()).SendAsync("MessageSent", payload);
 
         await _hub.Clients.User(userId.ToString()).SendAsync("Delivered", new
         {
@@ -131,7 +134,8 @@ public class MessagesController : ControllerBase
     {
         var me = CurrentUserId;
 
-        await _messageService.DeleteMessageAsync(me, id, scope);
+        var orphanedFile = await _messageService.DeleteMessageAsync(me, id, scope);
+        if (orphanedFile != null) UploadedFiles.TryDelete(orphanedFile);
 
         if (scope == "all")
         {

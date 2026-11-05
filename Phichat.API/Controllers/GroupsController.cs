@@ -137,6 +137,8 @@ public class GroupsController : ControllerBase
     {
         var members = ToUserIds(result.MemberIds);
 
+        foreach (var url in result.OrphanedFileUrls) UploadedFiles.TryDelete(url);
+
         if (result.SystemMessage is { } message && members.Count > 0)
         {
             await _hub.Clients.Users(members).SendAsync("ReceiveMessage", new

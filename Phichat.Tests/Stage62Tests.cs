@@ -222,4 +222,42 @@ public sealed class BlockAndPinTests : IDisposable
         await _messages.UnpinAsync(_alice, m2.Id);
         Assert.Empty(await _messages.GetPinnedAsync(_bob, _alice));
     }
+
+    [Fact]
+    public async Task Reading_a_chat_covers_messages_that_were_never_loaded()
+    {
+        var a = await PublishKeyAsync(_alice);
+        var b = await PublishKeyAsync(_bob);
+        var first = await SendAsync(_alice, _bob, a, b);
+        await SendAsync(_alice, _bob, a, b);
+        var upTo = await SendAsync(_alice, _bob, a, b);
+        await Task.Delay(5);
+        var later = await SendAsync(_alice, _bob, a, b);
+        _db.ChangeTracker.Clear();
+
+        // Only the receiver reads, and a message of another chat is not an anchor.
+        Assert.Null(await _messages.MarkChatReadAsync(_carol, _alice, upTo.Id));
+        Assert.Equal(upTo.SentAt, await _messages.MarkChatReadAsync(_bob, _alice, upTo.Id));
+        Assert.Null(await _messages.MarkChatReadAsync(_bob, _alice, upTo.Id)); // nothing new
+
+        var unread = (await _messages.GetConversationsAsync(_bob)).Single(c => c.PeerId == _alice).UnreadCount;
+        Assert.Equal(1, unread);
+        Assert.False(await _db.Messages.AsNoTracking().Where(m => m.Id == later.Id).Select(m => m.IsRead).SingleAsync());
+        Assert.True(await _db.Messages.AsNoTracking().Where(m => m.Id == first.Id).Select(m => m.IsRead).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Stored_file_is_released_only_with_its_last_message()
+    {
+        var a = await PublishKeyAsync(_alice);
+        var b = await PublishKeyAsync(_bob);
+        var original = await SendAsync(_alice, _bob, a, b);
+        var forward = await SendAsync(_bob, _alice, b, a);
+        foreach (var message in new[] { original, forward }) message.FileUrl = "/uploads/shared.bin";
+        await _db.SaveChangesAsync();
+
+        Assert.Null(await _messages.DeleteMessageAsync(_alice, original.Id, "all"));
+        Assert.Null(await _messages.DeleteMessageAsync(_bob, forward.Id, "me"));
+        Assert.Equal("/uploads/shared.bin", await _messages.DeleteMessageAsync(_bob, forward.Id, "all"));
+    }
 }

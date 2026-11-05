@@ -141,6 +141,25 @@ public class MessageService : IMessageService
         };
     }
 
+    public async Task<DateTime?> MarkChatReadAsync(Guid readerId, Guid peerId, Guid upToMessageId)
+    {
+        var upTo = await _context.Messages.AsNoTracking()
+            .Where(m => m.Id == upToMessageId && m.GroupId == null &&
+                ((m.SenderId == peerId && m.ReceiverId == readerId) || (m.SenderId == readerId && m.ReceiverId == peerId)))
+            .Select(m => (DateTime?)m.SentAt)
+            .FirstOrDefaultAsync();
+        if (upTo == null) return null;
+
+        var now = DateTime.UtcNow;
+        var changed = await _context.Messages
+            .Where(m => m.SenderId == peerId && m.ReceiverId == readerId && !m.IsRead && m.SentAt <= upTo.Value)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.IsRead, true)
+                .SetProperty(m => m.ReadAtUtc, now));
+
+        return changed > 0 ? upTo : null;
+    }
+
     public async Task<DateTime?> MarkGroupReadAsync(Guid groupId, Guid readerId, Guid messageId)
     {
         var member = await _context.GroupMembers.FirstOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == readerId)
@@ -407,7 +426,7 @@ public class MessageService : IMessageService
         };
     }
 
-    public async Task DeleteMessageAsync(Guid userId, Guid messageId, string scope)
+    public async Task<string?> DeleteMessageAsync(Guid userId, Guid messageId, string scope)
     {
         if (scope != "me" && scope != "all")
             throw new BadRequestException("invalid_scope", "Scope must be 'me' or 'all'.");
@@ -422,12 +441,17 @@ public class MessageService : IMessageService
                 allowed = await _context.GroupMembers.AnyAsync(gm => gm.GroupId == groupId && gm.UserId == userId && gm.Role != GroupRole.Member);
             if (!allowed) throw new ForbiddenException("not_message_owner", "Only the sender can delete a message for everyone.");
 
+            var fileUrl = m.FileUrl;
+
             m.IsDeleted = true;
             m.EncryptedContent = "";
             m.FileUrl = null;
             m.IsRead = true; // Mark as read when deleted
             m.UpdatedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            // Forwards share the stored file, so it goes only with its last message.
+            return fileUrl != null && !await _context.Messages.AnyAsync(x => x.FileUrl == fileUrl) ? fileUrl : null;
         }
         else // "me"
         {
@@ -442,6 +466,7 @@ public class MessageService : IMessageService
                 });
                 await _context.SaveChangesAsync();
             }
+            return null;
         }
     }
 
